@@ -16,7 +16,7 @@ from auth import (
 app = FastAPI(
     title="PipeGuard AI",
     description="AI Powered Data Reliability Platform",
-    version="9.0"
+    version="10.0"
 )
 
 app.add_middleware(
@@ -32,9 +32,9 @@ create_tables()
 security = HTTPBearer()
 
 
-# ------------------------
-# Request Models
-# -------------------------
+# =========================
+# MODELS
+# =========================
 
 class SignupRequest(BaseModel):
     company_name: str
@@ -47,9 +47,9 @@ class LoginRequest(BaseModel):
     password: str
 
 
-# -------------------------
-# Base APIs
-# -------------------------
+# =========================
+# SYSTEM APIS
+# =========================
 
 @app.get("/")
 def home():
@@ -57,7 +57,7 @@ def home():
     return {
         "message": "Welcome to PipeGuard AI 🚀",
         "status": "ONLINE",
-        "version": "9.0"
+        "version": "10.0"
     }
 
 
@@ -75,14 +75,14 @@ def api_status():
 
     return {
         "application": "PipeGuard AI",
-        "backend_version": "9.0",
+        "backend_version": "10.0",
         "database": "CONNECTED",
         "authentication": "JWT ENABLED",
         "scan_engine": "ACTIVE"
     }
-    # -------------------------
-# Signup API
-# -------------------------
+    # =========================
+# SIGNUP API
+# =========================
 
 @app.post("/signup")
 def signup(user: SignupRequest):
@@ -135,9 +135,9 @@ def signup(user: SignupRequest):
     }
 
 
-# -------------------------
-# Login API
-# -------------------------
+# =========================
+# LOGIN API
+# =========================
 
 @app.post("/login")
 def login(data: LoginRequest):
@@ -185,9 +185,9 @@ def login(data: LoginRequest):
     }
 
 
-# ------------------------
-# JWT Verification
-# -------------------------
+# =========================
+# JWT AUTH
+# =========================
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -207,9 +207,9 @@ def get_current_user(
     return email
 
 
-# -------------------------
-# Workspace API
-# -------------------------
+# =========================
+# WORKSPACE API
+# =========================
 
 @app.get("/my-workspace")
 def my_workspace(
@@ -228,14 +228,15 @@ def my_workspace(
             "Pipeline Monitoring",
             "Data Quality Scans",
             "Issue Detection",
+            "Row Level Analysis",
             "Health Reports",
             "Auto Fix Engine"
         ]
 
     }
-    # -------------------------
-# Upload Pipeline API
-# -------------------------
+    # =========================
+# UPLOAD PIPELINE API
+# =========================
 
 @app.post("/upload-pipeline")
 def upload_pipeline(
@@ -248,9 +249,9 @@ def upload_pipeline(
 
     df = pd.read_csv(file.file)
 
-    # -------------------------
-    # Missing Values
-    # -------------------------
+    # =========================
+    # MISSING VALUES
+    # =========================
 
     missing_values = int(
         df.isnull().sum().sum()
@@ -264,15 +265,15 @@ def upload_pipeline(
             df[col].isnull()
         ].index.tolist()
 
-        for row in rows[:10]:
+        for row in rows[:20]:
 
             missing_details.append(
                 f"Row {row + 2}: {col} is empty"
             )
 
-    # -------------------------
-    # Duplicate Rows
-    # -------------------------
+    # =========================
+    # DUPLICATE ROWS
+    # =========================
 
     duplicate_rows = int(
         df.duplicated().sum()
@@ -284,15 +285,15 @@ def upload_pipeline(
         df.duplicated()
     ].index.tolist()
 
-    for row in duplicate_indexes[:10]:
+    for row in duplicate_indexes[:20]:
 
         duplicate_details.append(
             f"Row {row + 2}: Duplicate row detected"
         )
 
-    # -------------------------
-    # Invalid Emails
-    # -------------------------
+    # =========================
+    # INVALID EMAILS
+    # =========================
 
     invalid_emails = 0
 
@@ -319,15 +320,15 @@ def upload_pipeline(
             invalid_mask
         ].index.tolist()
 
-        for row in invalid_rows[:10]:
+        for row in invalid_rows[:20]:
 
             email_details.append(
                 f"Row {row + 2}: Invalid email format"
             )
 
-    # -------------------------
-    # Invalid Phones (FIXED)
-    # -------------------------
+    # =========================
+    # INVALID PHONES
+    # =========================
 
     invalid_phones = 0
 
@@ -356,14 +357,14 @@ def upload_pipeline(
             invalid_phone_mask
         ].index.tolist()
 
-        for row in invalid_phone_rows[:10]:
+        for row in invalid_phone_rows[:20]:
 
             phone_details.append(
                 f"Row {row + 2}: Invalid phone number"
             )
-                # -------------------------
-    # Negative Revenue
-    # -------------------------
+                # =========================
+    # NEGATIVE REVENUE
+    # =========================
 
     negative_revenue = 0
 
@@ -371,11 +372,13 @@ def upload_pipeline(
 
     if "Order_Value" in df.columns:
 
+        revenue_series = pd.to_numeric(
+            df["Order_Value"],
+            errors="coerce"
+        )
+
         negative_mask = (
-            pd.to_numeric(
-                df["Order_Value"],
-                errors="coerce"
-            ).fillna(0) < 0
+            revenue_series.fillna(0) < 0
         )
 
         negative_revenue = int(
@@ -386,31 +389,32 @@ def upload_pipeline(
             negative_mask
         ].index.tolist()
 
-        for row in negative_rows[:10]:
+        for row in negative_rows[:20]:
 
             revenue_details.append(
                 f"Row {row + 2}: Negative revenue detected"
             )
 
-    # -------------------------
-    # Health Score
-    # -------------------------
+    # =========================
+    # HEALTH SCORE
+    # =========================
 
     score = 100
 
-score -= missing_values * 0.3
-score -= duplicate_rows * 1
-score -= invalid_emails * 0.5
-score -= invalid_phones * 0.5
-score -= negative_revenue * 1
+    score -= missing_values * 0.3
+    score -= duplicate_rows * 1
+    score -= invalid_emails * 0.5
+    score -= invalid_phones * 0.5
+    score -= negative_revenue * 1
 
-score = max(
-    0,
-    round(score)
-)
-    # -------------------------
-    # Issues List
-    # -------------------------
+    score = max(
+        0,
+        round(score)
+    )
+
+    # =========================
+    # ISSUES LIST
+    # =========================
 
     issues = []
 
@@ -445,9 +449,9 @@ score = max(
             "No issues detected"
         )
 
-    # -------------------------
-    # Details Object
-    # -------------------------
+    # =========================
+    # DETAILS OBJECT
+    # =========================
 
     details = {
 
@@ -462,10 +466,9 @@ score = max(
         "negative_revenue": revenue_details
 
     }
-
-    # -------------------------
-    # Save Report
-    # -------------------------
+        # =========================
+    # SAVE REPORT
+    # =========================
 
     conn = get_db()
     cursor = conn.cursor()
@@ -492,9 +495,9 @@ score = max(
     conn.commit()
     conn.close()
 
-    # -------------------------
-    # Final Response
-    # -------------------------
+    # =========================
+    # FINAL RESPONSE
+    # =========================
 
     return {
 
@@ -523,9 +526,11 @@ score = max(
         "details": details
 
     }
-    # -------------------------
-# Reports API
-# -------------------------
+
+
+# =========================
+# REPORTS API
+# =========================
 
 @app.get("/my-reports")
 def my_reports(
@@ -579,6 +584,6 @@ def my_reports(
     }
 
 
-# -------------------------
-# End Of File
-# -------------------------
+# =========================
+# END OF FILE
+# =========================
