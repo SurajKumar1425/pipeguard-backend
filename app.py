@@ -16,7 +16,7 @@ from auth import (
 app = FastAPI(
     title="PipeGuard AI",
     description="AI Powered Data Reliability Platform",
-    version="7.0"
+    version="8.0"
 )
 
 app.add_middleware(
@@ -32,6 +32,10 @@ create_tables()
 security = HTTPBearer()
 
 
+# -------------------------
+# Request Models
+# -------------------------
+
 class SignupRequest(BaseModel):
     company_name: str
     email: str
@@ -43,13 +47,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# -------------------------
+# Base APIs
+# -------------------------
+
 @app.get("/")
 def home():
 
     return {
         "message": "Welcome to PipeGuard AI 🚀",
         "status": "ONLINE",
-        "version": "7.0"
+        "version": "8.0"
     }
 
 
@@ -67,13 +75,12 @@ def api_status():
 
     return {
         "application": "PipeGuard AI",
-        "backend_version": "7.0",
+        "backend_version": "8.0",
         "database": "CONNECTED",
-        "authentication": "JWT ENABLED"
+        "authentication": "JWT ENABLED",
+        "scan_engine": "ACTIVE"
     }
-
-
-# -------------------------
+    # -------------------------
 # Signup API
 # -------------------------
 
@@ -174,7 +181,9 @@ def login(data: LoginRequest):
         "access_token": token,
         "token_type": "Bearer"
     }
-    # -------------------------
+
+
+# -------------------------
 # JWT Verification
 # -------------------------
 
@@ -211,7 +220,14 @@ def my_workspace(
 
         "company": email,
 
-        "access": "GRANTED"
+        "access": "GRANTED",
+
+        "features": [
+            "Pipeline Monitoring",
+            "Data Quality Scans",
+            "Issue Detection",
+            "Health Reports"
+        ]
 
     }
     # -------------------------
@@ -227,68 +243,147 @@ def upload_pipeline(
 
     df = pd.read_csv(file.file)
 
+    # -------------------------
     # Missing Values
+    # -------------------------
 
     missing_values = int(
         df.isnull().sum().sum()
     )
 
+    missing_details = []
+
+    for col in df.columns:
+
+        rows = df[
+            df[col].isnull()
+        ].index.tolist()
+
+        for row in rows[:10]:
+
+            missing_details.append(
+                f"Row {row + 2}: {col} is empty"
+            )
+
+    # -------------------------
     # Duplicate Rows
+    # -------------------------
 
     duplicate_rows = int(
         df.duplicated().sum()
     )
 
+    duplicate_details = []
+
+    duplicate_indexes = df[
+        df.duplicated()
+    ].index.tolist()
+
+    for row in duplicate_indexes[:10]:
+
+        duplicate_details.append(
+            f"Row {row + 2}: Duplicate row detected"
+        )
+
+    # -------------------------
     # Invalid Emails
+    # -------------------------
 
     invalid_emails = 0
+
+    email_details = []
 
     if "Email" in df.columns:
 
         email_series = (
             df["Email"]
-            .dropna()
+            .fillna("")
             .astype(str)
         )
 
-        invalid_emails = int(
-            (~email_series.str.match(
-                r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
-            )).sum()
+        invalid_mask = ~email_series.str.match(
+            r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
         )
 
+        invalid_emails = int(
+            invalid_mask.sum()
+        )
+
+        invalid_rows = df[
+            invalid_mask
+        ].index.tolist()
+
+        for row in invalid_rows[:10]:
+
+            email_details.append(
+                f"Row {row + 2}: Invalid email format"
+            )
+                # -------------------------
     # Invalid Phones
+    # -------------------------
 
     invalid_phones = 0
+
+    phone_details = []
 
     if "Phone" in df.columns:
 
         phone_series = (
             df["Phone"]
-            .dropna()
+            .fillna("")
             .astype(str)
         )
 
-        invalid_phones = int(
-            (~phone_series.str.match(
-                r"^\d{10}$"
-            )).sum()
+        invalid_phone_mask = ~phone_series.str.match(
+            r"^\d{10}$"
         )
 
+        invalid_phones = int(
+            invalid_phone_mask.sum()
+        )
+
+        invalid_phone_rows = df[
+            invalid_phone_mask
+        ].index.tolist()
+
+        for row in invalid_phone_rows[:10]:
+
+            phone_details.append(
+                f"Row {row + 2}: Invalid phone number"
+            )
+
+    # -------------------------
     # Negative Revenue
+    # -------------------------
 
     negative_revenue = 0
 
+    revenue_details = []
+
     if "Order_Value" in df.columns:
 
-        negative_revenue = int(
-            (
-                df["Order_Value"]
-                .fillna(0) < 0
-            ).sum()
+        negative_mask = (
+            df["Order_Value"]
+            .fillna(0) < 0
         )
 
+        negative_revenue = int(
+            negative_mask.sum()
+        )
+
+        negative_rows = df[
+            negative_mask
+        ].index.tolist()
+
+        for row in negative_rows[:10]:
+
+            revenue_details.append(
+                f"Row {row + 2}: Negative revenue detected"
+            )
+
+    # -------------------------
     # Health Score
+    # -------------------------
 
     score = 100
 
@@ -301,7 +396,9 @@ def upload_pipeline(
     if score < 0:
         score = 0
 
-    # Issues
+    # -------------------------
+    # Issues List
+    # -------------------------
 
     issues = []
 
@@ -336,7 +433,22 @@ def upload_pipeline(
             "No issues detected"
         )
 
+    details = {
+
+        "missing": missing_details,
+
+        "duplicates": duplicate_details,
+
+        "invalid_emails": email_details,
+
+        "invalid_phones": phone_details,
+
+        "negative_revenue": revenue_details
+
+    }
+        # -------------------------
     # Save Report
+    # -------------------------
 
     conn = get_db()
     cursor = conn.cursor()
@@ -363,9 +475,13 @@ def upload_pipeline(
     conn.commit()
     conn.close()
 
+    # -------------------------
+    # Final Response
+    # -------------------------
+
     return {
 
-        "message": "Pipeline Scan Completed",
+        "message": "Pipeline Scan Completed Successfully",
 
         "pipeline": pipeline_name,
 
@@ -376,15 +492,23 @@ def upload_pipeline(
         "metrics": {
 
             "missing_values": missing_values,
+
             "duplicate_rows": duplicate_rows,
+
             "invalid_emails": invalid_emails,
+
             "invalid_phones": invalid_phones,
+
             "negative_revenue": negative_revenue
 
-        }
+        },
+
+        "details": details
 
     }
-    # -------------------------
+
+
+# -------------------------
 # Reports API
 # -------------------------
 
