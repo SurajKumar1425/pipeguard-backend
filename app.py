@@ -398,15 +398,16 @@ def upload_pipeline(
 
     score = 100
 
-    score -= missing_values * 1
-    score -= duplicate_rows * 2
-    score -= invalid_emails * 1
-    score -= invalid_phones * 1
-    score -= negative_revenue * 2
+score -= missing_values * 0.3
+score -= duplicate_rows * 1
+score -= invalid_emails * 0.5
+score -= invalid_phones * 0.5
+score -= negative_revenue * 1
 
-    if score < 0:
-        score = 0
-
+score = max(
+    0,
+    round(score)
+)
     # -------------------------
     # Issues List
     # -------------------------
