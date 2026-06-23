@@ -16,7 +16,7 @@ from auth import (
 app = FastAPI(
     title="PipeGuard AI",
     description="AI Powered Data Reliability Platform",
-    version="8.0"
+    version="9.0"
 )
 
 app.add_middleware(
@@ -57,7 +57,7 @@ def home():
     return {
         "message": "Welcome to PipeGuard AI 🚀",
         "status": "ONLINE",
-        "version": "8.0"
+        "version": "9.0"
     }
 
 
@@ -75,7 +75,7 @@ def api_status():
 
     return {
         "application": "PipeGuard AI",
-        "backend_version": "8.0",
+        "backend_version": "9.0",
         "database": "CONNECTED",
         "authentication": "JWT ENABLED",
         "scan_engine": "ACTIVE"
@@ -95,7 +95,9 @@ def signup(user: SignupRequest):
         (user.email,)
     )
 
-    if cursor.fetchone():
+    existing_user = cursor.fetchone()
+
+    if existing_user:
 
         conn.close()
 
@@ -226,7 +228,8 @@ def my_workspace(
             "Pipeline Monitoring",
             "Data Quality Scans",
             "Issue Detection",
-            "Health Reports"
+            "Health Reports",
+            "Auto Fix Engine"
         ]
 
     }
@@ -240,6 +243,8 @@ def upload_pipeline(
     file: UploadFile = File(...),
     email: str = Depends(get_current_user)
 ):
+
+    # Read CSV
 
     df = pd.read_csv(file.file)
 
@@ -299,6 +304,7 @@ def upload_pipeline(
             df["Email"]
             .fillna("")
             .astype(str)
+            .str.strip()
         )
 
         invalid_mask = ~email_series.str.match(
@@ -318,8 +324,9 @@ def upload_pipeline(
             email_details.append(
                 f"Row {row + 2}: Invalid email format"
             )
-                # -------------------------
-    # Invalid Phones
+
+    # -------------------------
+    # Invalid Phones (FIXED)
     # -------------------------
 
     invalid_phones = 0
@@ -332,6 +339,9 @@ def upload_pipeline(
             df["Phone"]
             .fillna("")
             .astype(str)
+            .str.replace(".0", "", regex=False)
+            .str.replace(" ", "", regex=False)
+            .str.strip()
         )
 
         invalid_phone_mask = ~phone_series.str.match(
@@ -351,8 +361,7 @@ def upload_pipeline(
             phone_details.append(
                 f"Row {row + 2}: Invalid phone number"
             )
-
-    # -------------------------
+                # -------------------------
     # Negative Revenue
     # -------------------------
 
@@ -363,8 +372,10 @@ def upload_pipeline(
     if "Order_Value" in df.columns:
 
         negative_mask = (
-            df["Order_Value"]
-            .fillna(0) < 0
+            pd.to_numeric(
+                df["Order_Value"],
+                errors="coerce"
+            ).fillna(0) < 0
         )
 
         negative_revenue = int(
@@ -387,11 +398,11 @@ def upload_pipeline(
 
     score = 100
 
-    score -= missing_values * 2
-    score -= duplicate_rows * 5
-    score -= invalid_emails * 2
-    score -= invalid_phones * 2
-    score -= negative_revenue * 3
+    score -= missing_values * 1
+    score -= duplicate_rows * 2
+    score -= invalid_emails * 1
+    score -= invalid_phones * 1
+    score -= negative_revenue * 2
 
     if score < 0:
         score = 0
@@ -433,6 +444,10 @@ def upload_pipeline(
             "No issues detected"
         )
 
+    # -------------------------
+    # Details Object
+    # -------------------------
+
     details = {
 
         "missing": missing_details,
@@ -446,7 +461,8 @@ def upload_pipeline(
         "negative_revenue": revenue_details
 
     }
-        # -------------------------
+
+    # -------------------------
     # Save Report
     # -------------------------
 
@@ -506,9 +522,7 @@ def upload_pipeline(
         "details": details
 
     }
-
-
-# -------------------------
+    # -------------------------
 # Reports API
 # -------------------------
 
@@ -538,11 +552,11 @@ def my_reports(
 
     conn.close()
 
-    result = []
+    report_list = []
 
     for report in reports:
 
-        result.append(
+        report_list.append(
             {
                 "pipeline": report[0],
                 "health_score": report[1],
@@ -555,8 +569,15 @@ def my_reports(
 
         "company": email,
 
-        "total_reports": len(result),
+        "total_reports": len(
+            report_list
+        ),
 
-        "reports": result
+        "reports": report_list
 
     }
+
+
+# -------------------------
+# End Of File
+# -------------------------
