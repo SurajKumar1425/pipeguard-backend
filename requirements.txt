@@ -5,6 +5,5 @@ pandas
 bcrypt
 PyJWT
 email-validator
-
 fastapi-mail
 python-dotenv
