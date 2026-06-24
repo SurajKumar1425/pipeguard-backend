@@ -6,14 +6,28 @@ from datetime import (
     timedelta
 )
 
-SECRET_KEY = "pipeguard_super_secret_key"
+# =========================
+# STRONG JWT SECRET
+# =========================
+
+SECRET_KEY = (
+    "pipeguard_ai_v12_secure_"
+    "production_jwt_secret_"
+    "2026_version"
+)
+
+ALGORITHM = "HS256"
+
+ACCESS_TOKEN_EXPIRE_DAYS = 7
 
 
-# -------------------------
-# Hash Password
-# -------------------------
+# =========================
+# HASH PASSWORD
+# =========================
 
-def hash_password(password: str):
+def hash_password(
+    password: str
+):
 
     hashed = bcrypt.hashpw(
         password.encode(),
@@ -23,9 +37,9 @@ def hash_password(password: str):
     return hashed.decode()
 
 
-# -------------------------
-# Verify Password
-# -------------------------
+# =========================
+# VERIFY PASSWORD
+# =========================
 
 def verify_password(
     plain_password: str,
@@ -38,35 +52,47 @@ def verify_password(
     )
 
 
-# -------------------------
-# Create JWT Token
-# -------------------------
+# =========================
+# CREATE ACCESS TOKEN
+# =========================
 
 def create_access_token(
     email: str
 ):
 
+    expire = (
+        datetime.utcnow()
+        + timedelta(
+            days=
+            ACCESS_TOKEN_EXPIRE_DAYS
+        )
+    )
+
     payload = {
 
         "sub": email,
 
-        "exp": datetime.utcnow()
-        + timedelta(days=1)
+        "exp": expire
 
     }
 
     token = jwt.encode(
+
         payload,
+
         SECRET_KEY,
-        algorithm="HS256"
+
+        algorithm=
+        ALGORITHM
+
     )
 
     return token
 
 
-# -------------------------
-# Verify JWT Token
-# -------------------------
+# =========================
+# VERIFY TOKEN
+# =========================
 
 def verify_token(
     token: str
@@ -75,13 +101,29 @@ def verify_token(
     try:
 
         payload = jwt.decode(
+
             token,
+
             SECRET_KEY,
-            algorithms=["HS256"]
+
+            algorithms=[
+                ALGORITHM
+            ]
+
         )
 
-        return payload["sub"]
+        return payload.get(
+            "sub"
+        )
 
-    except:
+    except jwt.ExpiredSignatureError:
+
+        return None
+
+    except jwt.InvalidTokenError:
+
+        return None
+
+    except Exception:
 
         return None
