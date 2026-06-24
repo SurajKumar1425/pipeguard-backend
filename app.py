@@ -347,7 +347,11 @@ def signup(
     # PHONE VALIDATION
     # =====================
 
-    if not user.phone.isdigit():
+    # =====================
+# PHONE VALIDATION
+# =====================
+
+if not user.phone.isdigit():
 
     conn.close()
 
@@ -376,6 +380,8 @@ if user.phone in BLOCKED_PHONES:
         status_code=400,
         detail="Invalid phone number"
     )
+
+    
     # =====================
     # USER EXISTS CHECK
     # =====================
