@@ -1,11 +1,25 @@
+# =========================
+# IMPORTS
+# =========================
+
 import io
 import re
 import json
 import base64
 import datetime
-from typing import List, Dict, Any, Tuple, Optional
 
-# FastAPI framework runtime web layer components
+from typing import (
+    List,
+    Dict,
+    Any,
+    Tuple,
+    Optional
+)
+
+# =========================
+# FASTAPI
+# =========================
+
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -14,30 +28,45 @@ from fastapi import (
     File,
     status
 )
+
 from fastapi.security import (
     HTTPBearer,
     HTTPAuthorizationCredentials
 )
+
 from fastapi.middleware.cors import (
     CORSMiddleware
 )
 
-# Pydantic enterprise data validation and structure models
+# =========================
+# PYDANTIC
+# =========================
+
 from pydantic import (
     BaseModel,
     EmailStr,
     Field
 )
 
-# Heavy-duty computational math and matrix evaluation layers
-import pandas as pd
-import numpy as np
+# =========================
+# DATA PROCESSING
+# =========================
 
-# Internal pipeline integration bridges (Ensure database.py and auth.py are in local scope)
+import pandas as pd
+
+# =========================
+# DATABASE
+# =========================
+
 from database import (
     get_db,
     create_tables
 )
+
+# =========================
+# AUTH
+# =========================
+
 from auth import (
     hash_password,
     verify_password,
@@ -45,517 +74,2598 @@ from auth import (
     verify_token
 )
 
-# ==============================================================================
-# 1. ENTERPRISE CORE CONFIGURATIONS, BLACKLISTS & STATIC REGEX MATRICES
-# ==============================================================================
+# =========================
+# TEMP EMAIL BLACKLIST
+# =========================
 
-TEMP_EMAIL_DOMAINS: set = {
-    "mailinator.com", "10minutemail.com", "guerrillamail.com", "yopmail.com",
-    "tempmail.com", "temp-mail.org", "getnada.com", "trashmail.com",
-    "fakeinbox.com", "dispostable.com", "maildrop.cc", "mailnesia.com",
-    "sharklasers.com", "grr.la", "guerrillamailblock.com", "anonbox.net",
-    "anymailfinder.com", "bouncely.com", "burnemail.com", "creator.ai",
-    "throwawaymail.com", "tempmailaddress.com", "getairmail.com", "chimpmail.com"
+TEMP_EMAIL_DOMAINS = {
+
+    "mailinator.com",
+    "10minutemail.com",
+    "guerrillamail.com",
+    "yopmail.com",
+    "tempmail.com",
+    "temp-mail.org",
+    "getnada.com",
+    "trashmail.com",
+    "fakeinbox.com",
+    "dispostable.com",
+    "maildrop.cc",
+    "mailnesia.com",
+    "sharklasers.com",
+    "grr.la",
+    "throwawaymail.com",
+    "burnermail.com",
+    "tempmailaddress.com"
+
 }
 
-BLOCKED_PHONES: set = {
-    "1234567890", "1111111111", "2222222222", "3333333333", "4444444444",
-    "5555555555", "6666666666", "7777777777", "8888888888", "9999999999",
-    "0000000000", "9876543210", "0123456789", "1234512345", "9999988888"
+# =========================
+# BLOCKED PHONES
+# =========================
+
+BLOCKED_PHONES = {
+
+    "1234567890",
+    "1111111111",
+    "2222222222",
+    "3333333333",
+    "4444444444",
+    "5555555555",
+    "6666666666",
+    "7777777777",
+    "8888888888",
+    "9999999999",
+    "0000000000",
+    "9876543210"
+
 }
 
-EMAIL_REGEX: re.Pattern = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
-PHONE_REGEX: re.Pattern = re.compile(r"^\d{10}$")
-ALPHA_NUMERIC_SPACE: re.Pattern = re.compile(r"^[a-zA-Z0-9\s]*$")
+# =========================
+# REGEX
+# =========================
 
-# ==============================================================================
-# 2. FASTAPI INSTANCE DEFINITIONS & ROBUST MIDDLEWARE ROUTING
-# ==============================================================================
+EMAIL_REGEX = re.compile(
+
+    r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+
+)
+
+PHONE_REGEX = re.compile(
+
+    r"^[6-9]\d{9}$"
+
+)
+
+# =========================
+# FASTAPI APP
+# =========================
 
 app = FastAPI(
+
     title="PipeGuard AI",
-    description="Enterprise-Grade Data Quality Pipeline Management System Backend Engine Architecture.",
-    version="14.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
+
+    description=
+    "AI Data Quality Platform",
+
+    version="15.0"
+
 )
+
+# =========================
+# CORS
+# =========================
 
 app.add_middleware(
+
     CORSMiddleware,
+
     allow_origins=["*"],
+
     allow_credentials=True,
+
     allow_methods=["*"],
-    allow_headers=["*"],
+
+    allow_headers=["*"]
+
 )
 
+# =========================
+# DATABASE INIT
+# =========================
+
 create_tables()
+
 security = HTTPBearer()
 
-# ==============================================================================
-# 3. ENTITY DATA PROTECTION LAYERS & PYDANTIC MODELS
-# ==============================================================================
+# =========================
+# MODELS
+# =========================
 
 class SignupRequest(BaseModel):
-    full_name: str = Field(..., min_length=2, max_length=100)
-    company_name: str = Field("", max_length=150)
-    country_code: str = Field("+91", min_length=2, max_length=5)
-    phone: str = Field(..., min_length=10, max_length=15)
-    email: EmailStr = Field(..., description="B2B workspace transactional authentication address link")
-    password: str = Field(..., min_length=8)
 
-class LoginRequest(BaseModel):
+    full_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100
+    )
+
+    company_name: str = ""
+
+    country_code: str = "+91"
+
+    phone: str
+
     email: EmailStr
+
     password: str
 
-class ProfileUpdateRequest(BaseModel):
-    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
-    company_name: Optional[str] = Field(None, max_length=150)
-    phone: Optional[str] = Field(None, min_length=10, max_length=15)
 
-class PasswordChangeRequest(BaseModel):
+class LoginRequest(BaseModel):
+
+    email: EmailStr
+
+    password: str
+
+
+class UpdateProfileRequest(BaseModel):
+
+    full_name: Optional[str] = None
+
+    company_name: Optional[str] = None
+
+    phone: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+
     old_password: str
+
     new_password: str
+    # =========================
+# PASSWORD VALIDATION
+# =========================
 
-class APIStatusResponse(BaseModel):
-    application: str
-    version: str
-    database: str
-    authentication: str
-    supported_files: List[str]
-    system_time: str
+def validate_password(
+    password: str
+):
 
-class WorkspaceResponse(BaseModel):
-    email: str
-    full_name: str
-    company: str
-    plan: str
-    status: str
-    account_created_node: Optional[str] = "2026-Node"
-
-# ==============================================================================
-# 4. EXPLICIT SECURE VALIDATION ENGINES
-# ==============================================================================
-
-def validate_password(password: str) -> bool:
     if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long.")
-    if not any(char.isupper() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter.")
-    if not any(char.islower() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one lowercase letter.")
-    if not any(char.isdigit() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one number.")
+
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Password must be at least 8 characters"
+        )
+
+    if not re.search(
+        r"[A-Z]",
+        password
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Password must contain one uppercase letter"
+        )
+
+    if not re.search(
+        r"[a-z]",
+        password
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Password must contain one lowercase letter"
+        )
+
+    if not re.search(
+        r"\d",
+        password
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Password must contain one number"
+        )
+
     return True
 
-def validate_uploaded_file(uploaded_file: UploadFile) -> bool:
-    allowed_extensions: List[str] = [".csv", ".xlsx", ".xls", ".json"]
-    filename: str = uploaded_file.filename.lower()
-    if not any(filename.endswith(ext) for ext in allowed_extensions):
-        raise HTTPException(status_code=400, detail="Unsupported file format. Use CSV, XLSX, XLS, or JSON.")
+
+# =========================
+# FILE VALIDATION
+# =========================
+
+def validate_uploaded_file(
+    uploaded_file: UploadFile
+):
+
+    allowed_extensions = [
+
+        ".csv",
+        ".xlsx",
+        ".xls",
+        ".json",
+        ".txt"
+
+    ]
+
+    filename = (
+        uploaded_file.filename
+        .lower()
+    )
+
+    if not any(
+        filename.endswith(ext)
+        for ext in allowed_extensions
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Supported formats: CSV, XLSX, XLS, JSON, TXT"
+        )
+
     return True
 
-# ==============================================================================
-# 5. IN-MEMORY PARSER (ZERO-DISK RETENTION)
-# ==============================================================================
 
-def load_file_safely(uploaded_file: UploadFile) -> Tuple[pd.DataFrame, str]:
-    filename: str = uploaded_file.filename.lower()
+# =========================
+# FILE LOADER
+# =========================
+
+def load_file(
+    uploaded_file: UploadFile
+) -> Tuple[pd.DataFrame, str]:
+
+    filename = (
+        uploaded_file.filename
+        .lower()
+    )
+
     try:
-        file_bytes: bytes = uploaded_file.file.read()
-        if not file_bytes:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+        file_bytes = (
+            uploaded_file.file.read()
+        )
+
         uploaded_file.file.seek(0)
-        buffer: io.BytesIO = io.BytesIO(file_bytes)
-        
+
+        buffer = io.BytesIO(
+            file_bytes
+        )
+
+        # CSV
+
         if filename.endswith(".csv"):
-            return pd.read_csv(buffer, keep_default_na=True, skipinitialspace=True), "csv"
+
+            df = pd.read_csv(
+                buffer
+            )
+
+            return df, "csv"
+
+        # XLSX
+
         elif filename.endswith(".xlsx"):
-            return pd.read_excel(buffer, engine="openpyxl", keep_default_na=True), "xlsx"
+
+            df = pd.read_excel(
+                buffer,
+                engine="openpyxl"
+            )
+
+            return df, "xlsx"
+
+        # XLS
+
         elif filename.endswith(".xls"):
-            return pd.read_excel(buffer, engine="xlrd", keep_default_na=True), "xls"
+
+            df = pd.read_excel(
+                buffer,
+                engine="xlrd"
+            )
+
+            return df, "xls"
+
+        # JSON
+
         elif filename.endswith(".json"):
-            return pd.read_json(buffer), "json"
+
+            df = pd.read_json(
+                buffer
+            )
+
+            return df, "json"
+
+        # TXT
+
+        elif filename.endswith(".txt"):
+
+            df = pd.read_csv(
+                buffer,
+                sep=None,
+                engine="python"
+            )
+
+            return df, "txt"
+
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file extension map routing.")
-    except Exception as parse_crash_err:
-        if isinstance(parse_crash_err, HTTPException):
-            raise parse_crash_err
-        raise HTTPException(status_code=422, detail=f"File parsing breakdown: {str(parse_crash_err)}")
 
-# ==============================================================================
-# 6. HIGH-SPEED VECTORIZED MATRIX PROFILING
-# ==============================================================================
+            raise HTTPException(
+                status_code=400,
+                detail=
+                "Unsupported file format"
+            )
 
-def analyze_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
-    total_rows: int = len(df)
-    total_columns: int = len(df.columns)
-    if total_rows == 0:
-        return {
-            "total_rows": 0, "total_columns": total_columns, "missing_values": 0,
-            "duplicate_rows": 0, "empty_columns": [str(c) for c in df.columns],
-            "invalid_emails": 0, "invalid_phones": 0
-        }
+    except Exception as e:
 
-    missing_values: int = int(df.isnull().sum().sum())
-    duplicate_rows: int = int(df.duplicated().sum())
-    empty_columns: List[str] = [str(col) for col in df.columns if df[col].isnull().all()]
+        raise HTTPException(
+            status_code=400,
+            detail=
+            f"File processing failed: {str(e)}"
+        )
 
-    invalid_emails: int = 0
-    email_cols: List[Any] = [col for col in df.columns if "email" in str(col).lower()]
-    for col in email_cols:
-        series: pd.Series = df[col].fillna("").astype(str).str.strip()
-        non_empty = series[series != ""]
-        if not non_empty.empty:
-            invalid_emails += int((~non_empty.str.match(EMAIL_REGEX.pattern)).sum())
 
-    invalid_phones: int = 0
-    phone_cols: List[Any] = [col for col in df.columns if "phone" in str(col).lower() or "mobile" in str(col).lower()]
-    for col in phone_cols:
-        series: pd.Series = df[col].fillna("").astype(str).str.replace(".0", "", regex=False).str.replace(" ", "", regex=False)
-        non_empty = series[series != ""]
-        if not non_empty.empty:
-            invalid_phones += int((~non_empty.str.match(PHONE_REGEX.pattern)).sum())
+# =========================
+# DATA ANALYSIS
+# =========================
+
+def analyze_dataframe(
+    df: pd.DataFrame
+):
+
+    total_rows = len(df)
+
+    total_columns = len(
+        df.columns
+    )
+
+    missing_values = int(
+        df.isnull()
+        .sum()
+        .sum()
+    )
+
+    duplicate_rows = int(
+        df.duplicated()
+        .sum()
+    )
+
+    empty_columns = []
+
+    for col in df.columns:
+
+        if df[col].isnull().all():
+
+            empty_columns.append(
+                str(col)
+            )
 
     return {
-        "total_rows": total_rows, "total_columns": total_columns, "missing_values": missing_values,
-        "duplicate_rows": duplicate_rows, "empty_columns": empty_columns,
-        "invalid_emails": invalid_emails, "invalid_phones": invalid_phones
+
+        "total_rows":
+            total_rows,
+
+        "total_columns":
+            total_columns,
+
+        "missing_values":
+            missing_values,
+
+        "duplicate_rows":
+            duplicate_rows,
+
+        "empty_columns":
+            empty_columns
+
     }
+    # =========================
+# CLEAN DATAFRAME
+# =========================
 
-def calculate_health_score(analysis: Dict[str, Any]) -> int:
-    score: float = 100.0
-    if analysis["total_rows"] == 0:
-        return 100
-    score -= (analysis["missing_values"] * 0.3)
-    score -= (analysis["duplicate_rows"] * 1.0)
-    score -= (analysis["invalid_emails"] * 0.5)
-    score -= (analysis["invalid_phones"] * 0.5)
-    score -= (len(analysis["empty_columns"]) * 2.0)
-    return max(0, min(100, round(score)))
+def clean_dataframe(
+    df: pd.DataFrame
+):
 
-# ==============================================================================
-# 7. AUTOMATED CLEANING EXECUTION PIPELINE
-# ==============================================================================
+    cleaned_df = df.copy()
 
-def clean_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
-    cleaned_df: pd.DataFrame = df.copy()
-    log: List[str] = []
+    cleaning_log = []
 
-    initial_row_count: int = len(cleaned_df)
-    cleaned_df = cleaned_df.drop_duplicates()
-    if len(cleaned_df) < initial_row_count:
-        log.append(f"Dropped {initial_row_count - len(cleaned_df)} duplicate rows.")
+    # =====================
+    # REMOVE DUPLICATES
+    # =====================
 
-    string_object_columns = cleaned_df.select_dtypes(include=["object"]).columns
-    for col in string_object_columns:
-        cleaned_df[col] = cleaned_df[col].astype(str).str.strip()
+    before_rows = len(
+        cleaned_df
+    )
+
+    cleaned_df = (
+        cleaned_df
+        .drop_duplicates()
+    )
+
+    removed_duplicates = (
+        before_rows
+        - len(cleaned_df)
+    )
+
+    if removed_duplicates > 0:
+
+        cleaning_log.append(
+
+            f"{removed_duplicates} duplicate rows removed"
+
+        )
+
+    # =====================
+    # TRIM SPACES
+    # =====================
+
+    object_columns = (
+
+        cleaned_df
+
+        .select_dtypes(
+            include=["object"]
+        )
+
+        .columns
+
+    )
+
+    for col in object_columns:
+
+        cleaned_df[col] = (
+
+            cleaned_df[col]
+
+            .astype(str)
+
+            .str.strip()
+
+        )
+
+    cleaning_log.append(
+        "Extra spaces removed"
+    )
+
+    # =====================
+    # HANDLE NULL VALUES
+    # =====================
 
     for col in cleaned_df.columns:
-        if cleaned_df[col].dtype == "object":
-            cleaned_df[col] = cleaned_df[col].fillna("Unknown")
+
+        if (
+            cleaned_df[col]
+            .dtype == "object"
+        ):
+
+            cleaned_df[col] = (
+
+                cleaned_df[col]
+
+                .fillna(
+                    "Unknown"
+                )
+
+            )
+
         else:
-            if not cleaned_df[col].isnull().all():
-                cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].median())
+
+            if not (
+                cleaned_df[col]
+                .isnull()
+                .all()
+            ):
+
+                cleaned_df[col] = (
+
+                    cleaned_df[col]
+
+                    .fillna(
+                        cleaned_df[col]
+                        .median()
+                    )
+
+                )
+
             else:
-                cleaned_df[col] = cleaned_df[col].fillna(0)
 
-    email_columns = [col for col in cleaned_df.columns if "email" in str(col).lower()]
+                cleaned_df[col] = (
+
+                    cleaned_df[col]
+
+                    .fillna(0)
+
+                )
+
+    cleaning_log.append(
+        "Missing values handled"
+    )
+
+    # =====================
+    # STANDARDIZE EMAILS
+    # =====================
+
+    email_columns = [
+
+        col
+
+        for col in cleaned_df.columns
+
+        if "email"
+        in str(col).lower()
+
+    ]
+
     for col in email_columns:
-        cleaned_df[col] = cleaned_df[col].astype(str).str.lower().str.strip()
-        
-    phone_columns = [col for col in cleaned_df.columns if "phone" in str(col).lower() or "mobile" in str(col).lower()]
+
+        cleaned_df[col] = (
+
+            cleaned_df[col]
+
+            .astype(str)
+
+            .str.lower()
+
+            .str.strip()
+
+        )
+
+    if len(email_columns) > 0:
+
+        cleaning_log.append(
+            "Emails standardized"
+        )
+
+    # =====================
+    # STANDARDIZE PHONES
+    # =====================
+
+    phone_columns = [
+
+        col
+
+        for col in cleaned_df.columns
+
+        if (
+
+            "phone"
+            in str(col).lower()
+
+            or
+
+            "mobile"
+            in str(col).lower()
+
+        )
+
+    ]
+
     for col in phone_columns:
-        cleaned_df[col] = cleaned_df[col].astype(str).str.replace(".0", "", regex=False).str.replace(" ", "", regex=False)
 
-    return {"dataframe": cleaned_df, "log": log}
+        cleaned_df[col] = (
 
-# ==============================================================================
-# 8. MIDDLEWARE AUTH DECODE
-# ==============================================================================
+            cleaned_df[col]
 
-def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Authorization credentials missing.")
-    extracted_email = verify_token(credentials.credentials)
-    if not extracted_email:
-        raise HTTPException(status_code=401, detail="Session expired or token verification failed.")
-    return extracted_email
+            .astype(str)
 
-# ==============================================================================
-# 9. COMPREHENSIVE PLATFORM CORE ROUTERS (SIGNUP & LOGIN PROTECTED)
-# ==============================================================================
+            .str.replace(
+                ".0",
+                "",
+                regex=False
+            )
 
-@app.get("/", tags=["System Infrastructure"])
-def home():
-    return {"message": "Welcome to PipeGuard AI API Node Service Cluster", "status": "ONLINE", "timestamp": datetime.datetime.utcnow().isoformat()}
+            .str.replace(
+                " ",
+                "",
+                regex=False
+            )
 
-@app.get("/api-status", response_model=APIStatusResponse, tags=["System Infrastructure"])
-def api_status():
-    return {
-        "application": "PipeGuard AI Core Engine Mesh Node", "version": "14.0.0",
-        "database": "CONNECTED", "authentication": "JWT-HS256-ACTIVE",
-        "supported_files": ["csv", "xlsx", "xls", "json"], "system_time": datetime.datetime.utcnow().isoformat()
-    }
-
-@app.get("/health", tags=["System Infrastructure"])
-def health_check():
-    return {"status": "healthy", "service": "Core Matrix Compute Container Cluster", "uptime_state": "NOMINAL"}
-
-@app.post("/signup", status_code=status.HTTP_201_CREATED, tags=["Auth Management"])
-def signup(user: SignupRequest) -> Dict[str, Any]:
-    validate_password(user.password)
-    
-    extracted_domain = user.email.split("@")[-1].lower()
-    if extracted_domain in TEMP_EMAIL_DOMAINS:
-        raise HTTPException(status_code=400, detail="Disposable or temporary emails are completely blocked.")
-        
-    if not user.phone.isdigit() or not re.match(r"^[6-9]\d{9}$", user.phone) or user.phone in BLOCKED_PHONES:
-        raise HTTPException(status_code=400, detail="Invalid phone number parameters sequence allocation.")
-
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT email FROM users WHERE email = ?", (user.email,))
-        if db_cursor.fetchone():
-            raise HTTPException(status_code=400, detail="Email workspace coordinate is already mapped to an active identity.")
-            
-        hashed_password_signature = hash_password(user.password)
-        db_cursor.execute(
-            """
-            INSERT INTO users (full_name, company_name, country_code, phone, email, password, is_verified, plan)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'Free Enterprise Tier Evaluation')
-            """,
-            (user.full_name, user.company_name, user.country_code, user.phone, user.email, hashed_password_signature, 1)
         )
-        db_connection.commit()
-    except Exception as db_err:
-        if isinstance(db_err, HTTPException): raise db_err
-        raise HTTPException(status_code=500, detail=f"Database persistent stack error: {str(db_err)}")
-    finally:
-        db_connection.close()
 
-    generated_jwt_access_token = create_access_token(user.email)
+    if len(phone_columns) > 0:
+
+        cleaning_log.append(
+            "Phone numbers standardized"
+        )
+
     return {
-        "message": "Corporate profile initialized successfully. Automatic workspace redirection triggered.",
-        "access_token": generated_jwt_access_token,
-        "token_type": "Bearer"
+
+        "dataframe":
+            cleaned_df,
+
+        "log":
+            cleaning_log
+
     }
 
-@app.post("/login", status_code=status.HTTP_200_OK, tags=["Auth Management"])
-def login(data: LoginRequest) -> Dict[str, Any]:
-    login_domain = data.email.split("@")[-1].lower()
-    if login_domain in TEMP_EMAIL_DOMAINS:
+
+# =========================
+# HEALTH SCORE
+# =========================
+
+def calculate_health_score(
+    analysis
+):
+
+    score = 100
+
+    score -= (
+        analysis["missing_values"]
+        * 0.3
+    )
+
+    score -= (
+        analysis["duplicate_rows"]
+        * 1
+    )
+
+    score -= (
+        len(
+            analysis[
+                "empty_columns"
+            ]
+        ) * 2
+    )
+
+    score = max(
+        0,
+        min(
+            100,
+            round(score)
+        )
+    )
+
+    return score
+
+
+# =========================
+# JWT USER AUTH
+# =========================
+
+def get_current_user(
+
+    credentials:
+    HTTPAuthorizationCredentials =
+    Depends(security)
+
+):
+
+    token = (
+        credentials.credentials
+    )
+
+    email = (
+        verify_token(token)
+    )
+
+    if not email:
+
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Access Denied. Tempmail channels are blacklisted on this network. Please switch to a clean account domain."
+            status_code=401,
+            detail=
+            "Invalid or expired token"
         )
 
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT password FROM users WHERE email = ?", (data.email,))
-        user_record = db_cursor.fetchone()
-    finally:
-        db_connection.close()
+    return email
+    # =========================
+# HOME API
+# =========================
 
-    if not user_record or not verify_password(data.password, user_record[0]):
-        raise HTTPException(status_code=401, detail="Authentication structure validation rejected. Passcode mismatch.")
+@app.get("/")
+def home():
 
-    generated_jwt_access_token = create_access_token(data.email)
     return {
-        "message": "Identity verified successfully. Distributing access key tokens.",
-        "access_token": generated_jwt_access_token,
-        "token_type": "Bearer"
+
+        "application":
+            "PipeGuard AI",
+
+        "version":
+            "15.0",
+
+        "status":
+            "ONLINE"
+
     }
 
-# ==============================================================================
-# 10. USER WORKSPACE PROFILE MUTATION SETTINGS (WEBSITE EXTENSION FEATS)
-# ==============================================================================
 
-@app.get("/my-workspace", response_model=WorkspaceResponse, tags=["Account Settings Dashboard"])
-def my_workspace(email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT full_name, company_name, plan FROM users WHERE email = ?", (email,))
-        user_record = db_cursor.fetchone()
-    finally:
-        db_connection.close()
+# =========================
+# HEALTH API
+# =========================
 
-    if not user_record:
-        raise HTTPException(status_code=404, detail="Workspace configuration mapping could not be safely pulled.")
-        
+@app.get("/health")
+def health():
+
     return {
-        "email": email, "full_name": user_record[0], "company": user_record[1] if user_record[1] else "Standalone Workspace",
-        "plan": user_record[2] if user_record[2] else "Evaluation Engine Node", "status": "ACTIVE"
+
+        "status":
+            "healthy",
+
+        "database":
+            "connected"
+
     }
 
-@app.put("/update-profile", tags=["Account Settings Dashboard"])
-def update_profile(profile_data: ProfileUpdateRequest, email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    """Allows standard web clients to mutate profile metadata tags instantly on cloud records."""
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        if profile_data.full_name:
-            db_cursor.execute("UPDATE users SET full_name = ? WHERE email = ?", (profile_data.full_name, email))
-        if profile_data.company_name:
-            db_cursor.execute("UPDATE users SET company_name = ? WHERE email = ?", (profile_data.company_name, email))
-        if profile_data.phone:
-            if profile_data.phone in BLOCKED_PHONES:
-                raise HTTPException(status_code=400, detail="Target phone configuration matches active system blacklist indexes.")
-            db_cursor.execute("UPDATE users SET phone = ? WHERE email = ?", (profile_data.phone, email))
-        db_connection.commit()
-    finally:
-        db_connection.close()
-    return {"message": "Account workspace parameters updated across production metadata nodes."}
 
-@app.post("/change-password", tags=["Account Settings Dashboard"])
-def change_password(passkeys: PasswordChangeRequest, email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    """Secures and verifies previous credential flags before matching new structural keys."""
-    validate_password(passkeys.new_password)
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT password FROM users WHERE email = ?", (email,))
-        stored_hash = db_cursor.fetchone()[0]
-        if not verify_password(passkeys.old_password, stored_hash):
-            raise HTTPException(status_code=400, detail="Credential authentication routine failed: Old passkey match logic error.")
-        
-        new_hashed_signature = hash_password(passkeys.new_password)
-        db_cursor.execute("UPDATE users SET password = ? WHERE email = ?", (new_hashed_signature, email))
-        db_connection.commit()
-    finally:
-        db_connection.close()
-    return {"message": "Passkey encryption block updated successfully across all matching identity pipelines."}
+# =========================
+# API STATUS
+# =========================
 
-# ==============================================================================
-# 11. REAL-TIME DATA PROCESSING PIPELINE & DATA CLEANING MANAGEMENT
-# ==============================================================================
+@app.get("/api-status")
+def api_status():
 
-@app.post("/upload-pipeline", status_code=status.HTTP_200_OK, tags=["Data Pipeline Core"])
-def upload_pipeline(pipeline_name: str, file: UploadFile = File(...), email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    validate_uploaded_file(file)
-    dataframe_matrix, resolved_file_type = load_file_safely(file)
+    return {
 
-    analysis_metrics = analyze_dataframe(dataframe_matrix)
-    computed_health_score = calculate_health_score(analysis_metrics)
-    
-    cleaning_pipeline_results = clean_dataframe(dataframe_matrix)
-    transformed_dataframe = cleaning_pipeline_results["dataframe"]
-    generated_cleaning_logs = cleaning_pipeline_results["log"]
+        "application":
+            "PipeGuard AI",
 
-    detected_anomalies_summary = []
-    if analysis_metrics["missing_values"] > 0: detected_anomalies_summary.append(f"{analysis_metrics['missing_values']} missing elements")
-    if analysis_metrics["duplicate_rows"] > 0: detected_anomalies_summary.append(f"{analysis_metrics['duplicate_rows']} duplicates")
-    if analysis_metrics["invalid_emails"] > 0: detected_anomalies_summary.append(f"{analysis_metrics['invalid_emails']} bad layout emails")
-    if analysis_metrics["invalid_phones"] > 0: detected_anomalies_summary.append(f"{analysis_metrics['invalid_phones']} malformed phone channels")
-    if not detected_anomalies_summary: detected_anomalies_summary.append("Optimized Corporate Frame Structure Engine Sync")
+        "version":
+            "15.0",
 
-    sanitized_issue_string = ", ".join(detected_anomalies_summary)
+        "supported_files": [
 
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute(
-            """
-            INSERT INTO pipeline_reports (company_email, pipeline_name, file_type, health_score, issues, total_rows, total_columns)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (email, pipeline_name, resolved_file_type, computed_health_score, sanitized_issue_string, analysis_metrics["total_rows"], analysis_metrics["total_columns"])
+            "csv",
+            "xlsx",
+            "xls",
+            "json",
+            "txt"
+
+        ]
+
+    }
+
+
+# =========================
+# SIGNUP API
+# =========================
+
+@app.post("/signup")
+def signup(
+    user: SignupRequest
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    # =====================
+    # PASSWORD CHECK
+    # =====================
+
+    validate_password(
+        user.password
+    )
+
+    # =====================
+    # TEMP MAIL BLOCK
+    # =====================
+
+    domain = (
+
+        user.email
+
+        .split("@")[-1]
+
+        .lower()
+
+    )
+
+    if domain in TEMP_EMAIL_DOMAINS:
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Temporary email addresses are not allowed"
+
         )
-        db_connection.commit()
-    except Exception as insert_err:
-        raise HTTPException(status_code=500, detail=f"Database allocation write failure sequence collapse: {str(insert_err)}")
-    finally:
-        db_connection.close()
 
-    string_io_buffer = io.StringIO()
-    transformed_dataframe.to_csv(string_io_buffer, index=False)
-    base64_encoded_clean_file = base64.b64encode(string_io_buffer.getvalue().encode("utf-8")).decode("utf-8")
+    # =====================
+    # PHONE VALIDATION
+    # =====================
+
+    if not PHONE_REGEX.match(
+        user.phone
+    ):
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Enter a valid Indian mobile number"
+
+        )
+
+    if user.phone in BLOCKED_PHONES:
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Invalid phone number"
+
+        )
+
+    # =====================
+    # EMAIL EXISTS
+    # =====================
+
+    cursor.execute(
+
+        """
+        SELECT id
+        FROM users
+        WHERE email=?
+        """,
+
+        (user.email,)
+
+    )
+
+    existing_user = (
+        cursor.fetchone()
+    )
+
+    if existing_user:
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Email already registered"
+
+        )
+
+    # =====================
+    # HASH PASSWORD
+    # =====================
+
+    hashed_password = (
+        hash_password(
+            user.password
+        )
+    )
+
+    # =====================
+    # INSERT USER
+    # =====================
+
+    cursor.execute(
+
+        """
+        INSERT INTO users
+        (
+            full_name,
+            company_name,
+            phone,
+            email,
+            password,
+            is_verified,
+            country_code,
+            plan
+        )
+        VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+
+        (
+
+            user.full_name,
+
+            user.company_name,
+
+            user.phone,
+
+            user.email,
+
+            hashed_password,
+
+            1,
+
+            user.country_code,
+
+            "FREE"
+
+        )
+
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    # =====================
+    # AUTO LOGIN TOKEN
+    # =====================
+
+    token = (
+        create_access_token(
+            user.email
+        )
+    )
 
     return {
-        "message": "B2B data pipeline metrics ingestion completed successfully.", "pipeline_name": pipeline_name, "file_type": resolved_file_type,
-        "health_score": computed_health_score, "issues": detected_anomalies_summary, "analysis": analysis_metrics,
-        "cleaning_log": generated_cleaning_logs, "clean_file_data": base64_encoded_clean_file,
-        "rows": analysis_metrics["total_rows"], "columns": analysis_metrics["total_columns"]
+
+        "message":
+            "Account created successfully",
+
+        "access_token":
+            token,
+
+        "token_type":
+            "Bearer"
+
+    }
+    # =========================
+# LOGIN API
+# =========================
+
+@app.post("/login")
+def login(
+    data: LoginRequest
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT password
+        FROM users
+        WHERE email=?
+        """,
+
+        (data.email,)
+
+    )
+
+    user = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    if not user:
+
+        raise HTTPException(
+
+            status_code=401,
+
+            detail=
+            "Invalid email"
+
+        )
+
+    if not verify_password(
+
+        data.password,
+
+        user[0]
+
+    ):
+
+        raise HTTPException(
+
+            status_code=401,
+
+            detail=
+            "Invalid password"
+
+        )
+
+    token = (
+        create_access_token(
+            data.email
+        )
+    )
+
+    return {
+
+        "message":
+            "Login successful",
+
+        "access_token":
+            token,
+
+        "token_type":
+            "Bearer"
+
     }
 
-@app.get("/my-reports", tags=["Data Pipeline Core"])
-def my_reports(email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT id, pipeline_name, file_type, health_score, issues, total_rows, total_columns, created_at FROM pipeline_reports WHERE company_email = ? ORDER BY created_at DESC", (email,))
-        records = db_cursor.fetchall()
-    finally:
-        db_connection.close()
+
+# =========================
+# MY WORKSPACE
+# =========================
+
+@app.get("/my-workspace")
+def my_workspace(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            full_name,
+            company_name,
+            phone,
+            country_code,
+            plan
+        FROM users
+        WHERE email=?
+        """,
+
+        (email,)
+
+    )
+
+    user = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    if not user:
+
+        raise HTTPException(
+
+            status_code=404,
+
+            detail=
+            "User not found"
+
+        )
 
     return {
-        "email": email, "total_reports": len(records),
-        "reports": [{"id": r[0], "pipeline_name": r[1], "file_type": r[2], "health_score": r[3], "issues": r[4].split(", ") if r[4] else [], "total_rows": r[5], "total_columns": r[6], "created_at": r[7]} for r in records]
+
+        "email":
+            email,
+
+        "full_name":
+            user[0],
+
+        "company_name":
+            user[1],
+
+        "phone":
+            user[2],
+
+        "country_code":
+            user[3],
+
+        "plan":
+            user[4]
+
     }
 
-@app.delete("/delete-report/{report_id}", tags=["Data Pipeline Core"])
-def delete_report(report_id: int, email: str = Depends(get_current_user)) -> Dict[str, str]:
-    """Allows application dashboard components to purge individual evaluation reports from storage grids."""
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT company_email FROM pipeline_reports WHERE id = ?", (report_id,))
-        record = db_cursor.fetchone()
-        if not record:
-            raise HTTPException(status_code=404, detail="Target processing telemetry log reference missing.")
-        if record[0] != email:
-            raise HTTPException(status_code=403, detail="Privilege boundary exception: Resource belongs to a different structural user workspace.")
-            
-        db_cursor.execute("DELETE FROM pipeline_reports WHERE id = ?", (report_id,))
-        db_connection.commit()
-    finally:
-        db_connection.close()
-    return {"message": "Target monitoring pipeline trace file scrubbed successfully."}
 
-@app.get("/dashboard-stats", tags=["Data Pipeline Core"])
-def dashboard_stats(email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT COUNT(*) FROM pipeline_reports WHERE company_email = ?", (email,))
-        total_reports_count = db_cursor.fetchone()[0]
+# =========================
+# PROFILE API
+# =========================
 
-        db_cursor.execute("SELECT AVG(health_score) FROM pipeline_reports WHERE company_email = ?", (email,))
-        avg_health = db_cursor.fetchone()[0] or 0.0
+@app.get("/profile")
+def profile(
 
-        db_cursor.execute("SELECT pipeline_name, health_score, created_at FROM pipeline_reports WHERE company_email = ? ORDER BY created_at DESC LIMIT 5", (email,))
-        recent_scans = db_cursor.fetchall()
-    finally:
-        db_connection.close()
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            full_name,
+            company_name,
+            phone,
+            country_code,
+            email,
+            plan,
+            created_at
+        FROM users
+        WHERE email=?
+        """,
+
+        (email,)
+
+    )
+
+    user = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    if not user:
+
+        raise HTTPException(
+
+            status_code=404,
+
+            detail=
+            "User not found"
+
+        )
 
     return {
-        "total_reports": total_reports_count, "average_health": round(avg_health, 2),
-        "recent_reports": [{"pipeline": r[0], "health_score": r[1], "created_at": r[2]} for r in recent_scans]
+
+        "full_name":
+            user[0],
+
+        "company_name":
+            user[1],
+
+        "phone":
+            user[2],
+
+        "country_code":
+            user[3],
+
+        "email":
+            user[4],
+
+        "plan":
+            user[5],
+
+        "created_at":
+            user[6]
+
     }
 
-# ==============================================================================
-# 12. ADVANCED SYSTEM TELEMETRY & SYSTEM-WIDE MANAGEMENT CONTROLLERS
-# ==============================================================================
 
-@app.get("/admin/stats", tags=["System Enterprise Administration"])
-def admin_global_stats(email: str = Depends(get_current_user)) -> Dict[str, Any]:
-    """Extracts total system analytics matrix counters (Requires master root level validation hooks)"""
-    db_connection = get_db()
-    db_cursor = db_connection.cursor()
-    try:
-        db_cursor.execute("SELECT COUNT(*) FROM users")
-        total_registered_accounts = db_cursor.fetchone()[0]
+# =========================
+# CHANGE PASSWORD
+# =========================
 
-        db_cursor.execute("SELECT COUNT(*) FROM pipeline_reports")
-        total_executed_pipelines = db_cursor.fetchone()[0]
-    finally:
-        db_connection.close()
+@app.post("/change-password")
+def change_password(
+
+    data: ChangePasswordRequest,
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    validate_password(
+        data.new_password
+    )
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT password
+        FROM users
+        WHERE email=?
+        """,
+
+        (email,)
+
+    )
+
+    user = (
+        cursor.fetchone()
+    )
+
+    if not user:
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=404,
+
+            detail=
+            "User not found"
+
+        )
+
+    if not verify_password(
+
+        data.old_password,
+
+        user[0]
+
+    ):
+
+        conn.close()
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Old password incorrect"
+
+        )
+
+    new_hash = (
+        hash_password(
+            data.new_password
+        )
+    )
+
+    cursor.execute(
+
+        """
+        UPDATE users
+        SET password=?
+        WHERE email=?
+        """,
+
+        (
+            new_hash,
+            email
+        )
+
+    )
+
+    conn.commit()
+
+    conn.close()
 
     return {
-        "system_status": "OPTIMAL",
-        "total_registered_corporate_nodes": total_registered_accounts,
-        "total_active_pipelines_evaluated": total_executed_pipelines,
-        "runtime_architecture_layer": "Monolithic Multi-Tenant Secure Thread Mapping Node"
+
+        "message":
+            "Password updated successfully"
+
+    }
+    # =========================
+# UPDATE PROFILE
+# =========================
+
+@app.put("/update-profile")
+def update_profile(
+
+    data: UpdateProfileRequest,
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    updates = []
+
+    values = []
+
+    if data.full_name:
+
+        updates.append(
+            "full_name=?"
+        )
+
+        values.append(
+            data.full_name
+        )
+
+    if data.company_name is not None:
+
+        updates.append(
+            "company_name=?"
+        )
+
+        values.append(
+            data.company_name
+        )
+
+    if data.phone:
+
+        if not PHONE_REGEX.match(
+            data.phone
+        ):
+
+            conn.close()
+
+            raise HTTPException(
+                status_code=400,
+                detail=
+                "Invalid phone number"
+            )
+
+        if data.phone in BLOCKED_PHONES:
+
+            conn.close()
+
+            raise HTTPException(
+                status_code=400,
+                detail=
+                "Blocked phone number"
+            )
+
+        updates.append(
+            "phone=?"
+        )
+
+        values.append(
+            data.phone
+        )
+
+    if len(updates) == 0:
+
+        conn.close()
+
+        return {
+            "message":
+            "No changes provided"
+        }
+
+    values.append(email)
+
+    query = f"""
+    UPDATE users
+    SET {", ".join(updates)}
+    WHERE email=?
+    """
+
+    cursor.execute(
+        query,
+        tuple(values)
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    return {
+
+        "message":
+            "Profile updated successfully"
+
+    }
+
+
+# =========================
+# DELETE ACCOUNT
+# =========================
+
+@app.delete("/delete-account")
+def delete_account(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        DELETE FROM users
+        WHERE email=?
+        """,
+
+        (email,)
+
+    )
+
+    cursor.execute(
+
+        """
+        DELETE FROM pipeline_reports
+        WHERE company_email=?
+        """,
+
+        (email,)
+
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    return {
+
+        "message":
+            "Account deleted successfully"
+
+    }
+
+
+# =========================
+# TOKEN VALIDATION
+# =========================
+
+@app.get("/validate-token")
+def validate_token_route(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    return {
+
+        "valid": True,
+
+        "email": email
+
+    }
+
+
+# =========================
+# CURRENT USER
+# =========================
+
+@app.get("/current-user")
+def current_user(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    return {
+
+        "email":
+            email
+
+    }
+
+
+# =========================
+# LOGOUT
+# =========================
+
+@app.post("/logout")
+def logout():
+
+    return {
+
+        "message":
+            "Logout successful"
+
+    }
+    # =========================
+# UPLOAD PIPELINE
+# =========================
+
+@app.post("/upload-pipeline")
+def upload_pipeline(
+
+    pipeline_name: str,
+
+    file: UploadFile = File(...),
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    # =====================
+    # VALIDATE FILE
+    # =====================
+
+    validate_uploaded_file(
+        file
+    )
+
+    # =====================
+    # LOAD FILE
+    # =====================
+
+    df, file_type = load_file(
+        file
+    )
+
+    # =====================
+    # EMPTY DATA CHECK
+    # =====================
+
+    if len(df) == 0:
+
+        raise HTTPException(
+
+            status_code=400,
+
+            detail=
+            "Uploaded file is empty"
+
+        )
+
+    # =====================
+    # ANALYSIS
+    # =====================
+
+    analysis = (
+        analyze_dataframe(
+            df
+        )
+    )
+
+    # =====================
+    # HEALTH SCORE
+    # =====================
+
+    health_score = (
+        calculate_health_score(
+            analysis
+        )
+    )
+
+    # =====================
+    # CLEAN DATA
+    # =====================
+
+    cleaned_result = (
+        clean_dataframe(
+            df
+        )
+    )
+
+    cleaned_df = (
+        cleaned_result[
+            "dataframe"
+        ]
+    )
+
+    cleaning_log = (
+        cleaned_result[
+            "log"
+        ]
+    )
+
+    # =====================
+    # ISSUE LIST
+    # =====================
+
+    issues = []
+
+    if analysis[
+        "missing_values"
+    ] > 0:
+
+        issues.append(
+
+            f"{analysis['missing_values']} missing values"
+
+        )
+
+    if analysis[
+        "duplicate_rows"
+    ] > 0:
+
+        issues.append(
+
+            f"{analysis['duplicate_rows']} duplicate rows"
+
+        )
+
+    if len(
+        analysis[
+            "empty_columns"
+        ]
+    ) > 0:
+
+        issues.append(
+
+            f"{len(analysis['empty_columns'])} empty columns"
+
+        )
+
+    if len(issues) == 0:
+
+        issues.append(
+            "No issues detected"
+        )
+
+    # =====================
+    # SAVE REPORT
+    # =====================
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        INSERT INTO pipeline_reports
+        (
+            company_email,
+            pipeline_name,
+            file_type,
+            health_score,
+            issues,
+            total_rows,
+            total_columns
+        )
+        VALUES
+        (?, ?, ?, ?, ?, ?, ?)
+        """,
+
+        (
+
+            email,
+
+            pipeline_name,
+
+            file_type,
+
+            health_score,
+
+            ", ".join(issues),
+
+            analysis[
+                "total_rows"
+            ],
+
+            analysis[
+                "total_columns"
+            ]
+
+        )
+
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    # =====================
+    # CLEAN FILE EXPORT
+    # =====================
+
+    csv_buffer = io.StringIO()
+
+    cleaned_df.to_csv(
+
+        csv_buffer,
+
+        index=False
+
+    )
+
+    cleaned_csv = (
+        csv_buffer.getvalue()
+    )
+
+    encoded_file = (
+
+        base64.b64encode(
+
+            cleaned_csv.encode(
+                "utf-8"
+            )
+
+        )
+
+        .decode(
+            "utf-8"
+        )
+
+    )
+
+    # =====================
+    # RESPONSE
+    # =====================
+
+    return {
+
+        "message":
+            "Pipeline processed successfully",
+
+        "pipeline_name":
+            pipeline_name,
+
+        "file_type":
+            file_type,
+
+        "health_score":
+            health_score,
+
+        "issues":
+            issues,
+
+        "analysis":
+            analysis,
+
+        "cleaning_log":
+            cleaning_log,
+
+        "clean_file":
+            encoded_file
+
+    }
+
+
+# =========================
+# SUPPORTED FILES
+# =========================
+
+@app.get("/supported-files")
+def supported_files():
+
+    return {
+
+        "supported": [
+
+            "csv",
+
+            "xlsx",
+
+            "xls",
+
+            "json",
+
+            "txt"
+
+        ]
+
+    }
+    # =========================
+# MY REPORTS
+# =========================
+
+@app.get("/my-reports")
+def my_reports(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            id,
+            pipeline_name,
+            file_type,
+            health_score,
+            issues,
+            total_rows,
+            total_columns,
+            created_at
+        FROM pipeline_reports
+        WHERE company_email=?
+        ORDER BY created_at DESC
+        """,
+
+        (email,)
+
+    )
+
+    reports = (
+        cursor.fetchall()
+    )
+
+    conn.close()
+
+    response = []
+
+    for report in reports:
+
+        response.append({
+
+            "id":
+                report[0],
+
+            "pipeline_name":
+                report[1],
+
+            "file_type":
+                report[2],
+
+            "health_score":
+                report[3],
+
+            "issues":
+                report[4],
+
+            "total_rows":
+                report[5],
+
+            "total_columns":
+                report[6],
+
+            "created_at":
+                report[7]
+
+        })
+
+    return {
+
+        "email":
+            email,
+
+        "total_reports":
+            len(response),
+
+        "reports":
+            response
+
+    }
+
+
+# =========================
+# REPORT DETAILS
+# =========================
+
+@app.get("/report/{report_id}")
+def report_details(
+
+    report_id: int,
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            id,
+            company_email,
+            pipeline_name,
+            file_type,
+            health_score,
+            issues,
+            total_rows,
+            total_columns,
+            created_at
+        FROM pipeline_reports
+        WHERE id=?
+        """,
+
+        (report_id,)
+
+    )
+
+    report = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    if not report:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Report not found"
+        )
+
+    if report[1] != email:
+
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied"
+        )
+
+    return {
+
+        "id":
+            report[0],
+
+        "pipeline_name":
+            report[2],
+
+        "file_type":
+            report[3],
+
+        "health_score":
+            report[4],
+
+        "issues":
+            report[5],
+
+        "total_rows":
+            report[6],
+
+        "total_columns":
+            report[7],
+
+        "created_at":
+            report[8]
+
+    }
+
+
+# =========================
+# DELETE REPORT
+# =========================
+
+@app.delete("/delete-report/{report_id}")
+def delete_report(
+
+    report_id: int,
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT company_email
+        FROM pipeline_reports
+        WHERE id=?
+        """,
+
+        (report_id,)
+
+    )
+
+    report = (
+        cursor.fetchone()
+    )
+
+    if not report:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail="Report not found"
+        )
+
+    if report[0] != email:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied"
+        )
+
+    cursor.execute(
+
+        """
+        DELETE FROM pipeline_reports
+        WHERE id=?
+        """,
+
+        (report_id,)
+
+    )
+
+    conn.commit()
+
+    conn.close()
+
+    return {
+
+        "message":
+            "Report deleted successfully"
+
+    }
+
+
+# =========================
+# DASHBOARD STATS
+# =========================
+
+@app.get("/dashboard-stats")
+def dashboard_stats(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT COUNT(*)
+        FROM pipeline_reports
+        WHERE company_email=?
+        """,
+
+        (email,)
+
+    )
+
+    total_reports = (
+        cursor.fetchone()[0]
+    )
+
+    cursor.execute(
+
+        """
+        SELECT AVG(health_score)
+        FROM pipeline_reports
+        WHERE company_email=?
+        """,
+
+        (email,)
+
+    )
+
+    avg_health = (
+        cursor.fetchone()[0]
+    )
+
+    if avg_health is None:
+
+        avg_health = 0
+
+    cursor.execute(
+
+        """
+        SELECT
+            pipeline_name,
+            health_score,
+            created_at
+        FROM pipeline_reports
+        WHERE company_email=?
+        ORDER BY created_at DESC
+        LIMIT 5
+        """,
+
+        (email,)
+
+    )
+
+    recent = (
+        cursor.fetchall()
+    )
+
+    conn.close()
+
+    recent_reports = []
+
+    for item in recent:
+
+        recent_reports.append({
+
+            "pipeline_name":
+                item[0],
+
+            "health_score":
+                item[1],
+
+            "created_at":
+                item[2]
+
+        })
+
+    return {
+
+        "total_reports":
+            total_reports,
+
+        "average_health":
+            round(avg_health, 2),
+
+        "recent_reports":
+            recent_reports
+
+    }
+    # =========================
+# SYSTEM STATS
+# =========================
+
+@app.get("/system-stats")
+def system_stats():
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM users"
+    )
+
+    total_users = (
+        cursor.fetchone()[0]
+    )
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM pipeline_reports"
+    )
+
+    total_reports = (
+        cursor.fetchone()[0]
+    )
+
+    cursor.execute(
+        """
+        SELECT AVG(health_score)
+        FROM pipeline_reports
+        """
+    )
+
+    avg_health = (
+        cursor.fetchone()[0]
+    )
+
+    conn.close()
+
+    if avg_health is None:
+
+        avg_health = 0
+
+    return {
+
+        "total_users":
+            total_users,
+
+        "total_reports":
+            total_reports,
+
+        "average_health":
+            round(avg_health, 2)
+
+    }
+
+
+# =========================
+# USER COUNT
+# =========================
+
+@app.get("/user-count")
+def user_count():
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM users"
+    )
+
+    count = (
+        cursor.fetchone()[0]
+    )
+
+    conn.close()
+
+    return {
+
+        "users":
+            count
+
+    }
+
+
+# =========================
+# PIPELINE COUNT
+# =========================
+
+@app.get("/pipeline-count")
+def pipeline_count():
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM pipeline_reports
+        """
+    )
+
+    count = (
+        cursor.fetchone()[0]
+    )
+
+    conn.close()
+
+    return {
+
+        "pipelines":
+            count
+
+    }
+
+
+# =========================
+# SEARCH REPORTS
+# =========================
+
+@app.get("/search-reports")
+def search_reports(
+
+    query: str,
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            id,
+            pipeline_name,
+            file_type,
+            health_score,
+            created_at
+        FROM pipeline_reports
+        WHERE company_email=?
+        AND pipeline_name
+        LIKE ?
+        ORDER BY created_at DESC
+        """,
+
+        (
+            email,
+            f"%{query}%"
+        )
+
+    )
+
+    reports = (
+        cursor.fetchall()
+    )
+
+    conn.close()
+
+    result = []
+
+    for report in reports:
+
+        result.append({
+
+            "id":
+                report[0],
+
+            "pipeline_name":
+                report[1],
+
+            "file_type":
+                report[2],
+
+            "health_score":
+                report[3],
+
+            "created_at":
+                report[4]
+
+        })
+
+    return {
+
+        "results":
+            result,
+
+        "count":
+            len(result)
+
+    }
+
+
+# =========================
+# ALL USERS (ADMIN)
+# =========================
+
+@app.get("/all-users")
+def all_users():
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT
+            id,
+            full_name,
+            email,
+            plan,
+            created_at
+        FROM users
+        ORDER BY created_at DESC
+        """
+
+    )
+
+    users = (
+        cursor.fetchall()
+    )
+
+    conn.close()
+
+    response = []
+
+    for user in users:
+
+        response.append({
+
+            "id":
+                user[0],
+
+            "full_name":
+                user[1],
+
+            "email":
+                user[2],
+
+            "plan":
+                user[3],
+
+            "created_at":
+                user[4]
+
+        })
+
+    return {
+
+        "total_users":
+            len(response),
+
+        "users":
+            response
+
+    }
+    # =========================
+# PING
+# =========================
+
+@app.get("/ping")
+def ping():
+
+    return {
+
+        "message":
+            "pong"
+
+    }
+
+
+# =========================
+# VERSION
+# =========================
+
+@app.get("/version")
+def version():
+
+    return {
+
+        "application":
+            "PipeGuard AI",
+
+        "version":
+            "15.0"
+
+    }
+
+
+# =========================
+# READY CHECK
+# =========================
+
+@app.get("/ready")
+def ready():
+
+    try:
+
+        conn = get_db()
+
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT 1"
+        )
+
+        conn.close()
+
+        return {
+
+            "ready":
+                True,
+
+            "database":
+                "connected"
+
+        }
+
+    except Exception as e:
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=
+            f"Database error: {str(e)}"
+
+        )
+
+
+# =========================
+# USER EXISTS
+# =========================
+
+@app.get("/user-exists")
+def user_exists(
+
+    email: str
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT id
+        FROM users
+        WHERE email=?
+        """,
+
+        (email,)
+
+    )
+
+    user = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    return {
+
+        "exists":
+            bool(user)
+
+    }
+
+
+# =========================
+# REPORT COUNT
+# =========================
+
+@app.get("/report-count")
+def report_count(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+
+        """
+        SELECT COUNT(*)
+        FROM pipeline_reports
+        WHERE company_email=?
+        """,
+
+        (email,)
+
+    )
+
+    count = (
+        cursor.fetchone()[0]
+    )
+
+    conn.close()
+
+    return {
+
+        "count":
+            count
+
+    }
+
+
+# =========================
+# ROOT ERROR TEST
+# =========================
+
+@app.get("/test")
+def test():
+
+    return {
+
+        "status":
+            "working",
+
+        "message":
+            "PipeGuard backend running"
+
+    }
+
+
+# =========================
+# STARTUP CHECK
+# =========================
+
+@app.on_event("startup")
+def startup_check():
+
+    try:
+
+        create_tables()
+
+        print(
+            "PipeGuard AI Started"
+        )
+
+    except Exception as e:
+
+        print(
+            f"Startup Error: {e}"
+        )
+
+
+# =========================
+# GLOBAL EXCEPTION
+# =========================
+
+@app.exception_handler(Exception)
+async def global_exception_handler(
+
+    request,
+
+    exc
+
+):
+
+    return {
+
+        "success":
+            False,
+
+        "error":
+            str(exc)
+
     }
