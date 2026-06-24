@@ -27,7 +27,6 @@ def create_tables():
 
     cursor = conn.cursor()
 
-
     # =========================
     # USERS TABLE
     # =========================
@@ -52,13 +51,16 @@ def create_tables():
 
             otp TEXT,
 
+            country_code TEXT DEFAULT '+91',
+
+            plan TEXT DEFAULT 'FREE',
+
             created_at TIMESTAMP
             DEFAULT CURRENT_TIMESTAMP
 
         )
         """
     )
-
 
     # =========================
     # PIPELINE REPORTS TABLE
@@ -74,9 +76,15 @@ def create_tables():
 
             pipeline_name TEXT NOT NULL,
 
+            file_type TEXT,
+
             health_score INTEGER,
 
             issues TEXT,
+
+            total_rows INTEGER,
+
+            total_columns INTEGER,
 
             created_at TIMESTAMP
             DEFAULT CURRENT_TIMESTAMP
@@ -84,7 +92,6 @@ def create_tables():
         )
         """
     )
-
 
     conn.commit()
 
