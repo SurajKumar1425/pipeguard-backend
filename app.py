@@ -37,7 +37,9 @@ security = HTTPBearer()
 # =========================
 
 class SignupRequest(BaseModel):
-    company_name: str
+    full_name: str
+    company_name: str = ""
+    phone: str
     email: str
     password: str
 
