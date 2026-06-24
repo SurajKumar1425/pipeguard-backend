@@ -7,3 +7,5 @@ PyJWT
 email-validator
 fastapi-mail
 python-dotenv
+openpyxl
+xlrd
