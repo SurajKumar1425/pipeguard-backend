@@ -3,6 +3,7 @@ import json
 import time
 import logging
 from datetime import datetime
+from random import randint
 
 import pandas as pd
 import psutil
@@ -1993,3 +1994,1561 @@ def test():
         "PipeGuard API Working"
 
     }
+# =========================
+# GLOBAL ERROR HANDLERS
+# =========================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(
+    request: Request,
+    exc: HTTPException
+):
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "detail": exc.detail
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(
+    request: Request,
+    exc: Exception
+):
+
+    MONITOR["total_errors"] += 1
+
+    logger.error(
+        f"Unhandled Error: {str(exc)}"
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "detail": "Internal Server Error"
+        }
+    )
+
+
+# =========================
+# DATA QUALITY ANALYZER
+# =========================
+
+def generate_quality_insights(
+    df: pd.DataFrame
+):
+
+    insights = []
+
+    rows = len(df)
+    cols = len(df.columns)
+
+    if rows < 100:
+        insights.append(
+            "Dataset is very small"
+        )
+
+    if cols > 50:
+        insights.append(
+            "Large schema detected"
+        )
+
+    missing = (
+        df.isnull()
+        .sum()
+        .sum()
+    )
+
+    if missing > 0:
+        insights.append(
+            f"{missing} missing values found"
+        )
+
+    duplicates = (
+        df.duplicated()
+        .sum()
+    )
+
+    if duplicates > 0:
+        insights.append(
+            f"{duplicates} duplicate rows found"
+        )
+
+    return insights
+
+
+# =========================
+# OUTLIER DETECTION
+# =========================
+
+def detect_outliers(
+    df: pd.DataFrame
+):
+
+    result = {}
+
+    numeric_cols = (
+        df.select_dtypes(
+            include="number"
+        )
+        .columns
+    )
+
+    for col in numeric_cols:
+
+        try:
+
+            q1 = (
+                df[col]
+                .quantile(0.25)
+            )
+
+            q3 = (
+                df[col]
+                .quantile(0.75)
+            )
+
+            iqr = q3 - q1
+
+            lower = (
+                q1 - 1.5 * iqr
+            )
+
+            upper = (
+                q3 + 1.5 * iqr
+            )
+
+            count = len(
+
+                df[
+                    (df[col] < lower)
+                    |
+                    (df[col] > upper)
+                ]
+
+            )
+
+            result[col] = count
+
+        except:
+            pass
+
+    return result
+
+
+# =========================
+# SCHEMA SUMMARY
+# =========================
+
+def schema_summary(
+    df: pd.DataFrame
+):
+
+    columns = []
+
+    for col in df.columns:
+
+        columns.append({
+
+            "column":
+            col,
+
+            "dtype":
+            str(
+                df[col].dtype
+            ),
+
+            "nulls":
+            int(
+                df[col]
+                .isnull()
+                .sum()
+            )
+
+        })
+
+    return columns
+
+
+# =========================
+# QUALITY REPORT API
+# =========================
+
+@app.post("/quality-report")
+async def quality_report(
+
+    file: UploadFile = File(...),
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    extension = validate_file(
+        file
+    )
+
+    df = load_file(
+        file,
+        extension
+    )
+
+    return {
+
+        "success": True,
+
+        "rows":
+        len(df),
+
+        "columns":
+        len(df.columns),
+
+        "quality_insights":
+        generate_quality_insights(df),
+
+        "outliers":
+        detect_outliers(df),
+
+        "schema":
+        schema_summary(df)
+
+    }
+
+
+# =========================
+# LOG STATS
+# =========================
+
+@app.get("/logs")
+def logs(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "total_requests":
+        MONITOR["total_requests"],
+
+        "successful_uploads":
+        MONITOR["successful_uploads"],
+
+        "failed_uploads":
+        MONITOR["failed_uploads"],
+
+        "errors":
+        MONITOR["total_errors"]
+
+    }
+# =========================
+# REAL TIME MONITORING
+# =========================
+
+import threading
+
+SYSTEM_ALERTS = []
+
+SERVER_START_TIME = time.time()
+
+SELF_HEAL_STATS = {
+
+    "high_cpu_events": 0,
+    "high_memory_events": 0,
+    "database_failures": 0,
+    "alerts_generated": 0
+
+}
+
+
+# =========================
+# CREATE ALERT
+# =========================
+
+def create_alert(
+
+    level: str,
+    message: str
+
+):
+
+    SYSTEM_ALERTS.append({
+
+        "time":
+        str(datetime.utcnow()),
+
+        "level":
+        level,
+
+        "message":
+        message
+
+    })
+
+    SELF_HEAL_STATS[
+        "alerts_generated"
+    ] += 1
+
+    if len(SYSTEM_ALERTS) > 500:
+
+        SYSTEM_ALERTS.pop(0)
+
+
+# =========================
+# DATABASE HEALTH
+# =========================
+
+def database_health():
+
+    try:
+
+        conn = get_db()
+
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT 1"
+        )
+
+        conn.close()
+
+        return True
+
+    except:
+
+        return False
+
+
+# =========================
+# SYSTEM HEALTH SCORE
+# =========================
+
+def system_health_score():
+
+    score = 100
+
+    cpu = psutil.cpu_percent()
+
+    ram = (
+        psutil.virtual_memory()
+        .percent
+    )
+
+    if cpu > 80:
+        score -= 15
+
+    if ram > 80:
+        score -= 15
+
+    if MONITOR[
+        "total_errors"
+    ] > 20:
+        score -= 20
+
+    return max(
+        score,
+        0
+    )
+
+
+# =========================
+# UPTIME
+# =========================
+
+def get_uptime():
+
+    seconds = int(
+
+        time.time()
+        -
+        SERVER_START_TIME
+
+    )
+
+    hours = seconds // 3600
+
+    minutes = (
+        seconds % 3600
+    ) // 60
+
+    return f"{hours}h {minutes}m"
+
+
+# =========================
+# BACKGROUND MONITOR
+# =========================
+
+def monitor_worker():
+
+    while True:
+
+        try:
+
+            cpu = psutil.cpu_percent()
+
+            ram = (
+                psutil.virtual_memory()
+                .percent
+            )
+
+            if cpu > 90:
+
+                SELF_HEAL_STATS[
+                    "high_cpu_events"
+                ] += 1
+
+                create_alert(
+
+                    "WARNING",
+
+                    f"High CPU {cpu}%"
+
+                )
+
+            if ram > 90:
+
+                SELF_HEAL_STATS[
+                    "high_memory_events"
+                ] += 1
+
+                create_alert(
+
+                    "WARNING",
+
+                    f"High Memory {ram}%"
+
+                )
+
+            if not database_health():
+
+                SELF_HEAL_STATS[
+                    "database_failures"
+                ] += 1
+
+                create_alert(
+
+                    "CRITICAL",
+
+                    "Database disconnected"
+
+                )
+
+        except Exception as e:
+
+            create_alert(
+
+                "ERROR",
+
+                str(e)
+
+            )
+
+        time.sleep(60)
+
+
+# =========================
+# START MONITOR THREAD
+# =========================
+
+@app.on_event("startup")
+async def start_monitor():
+
+    thread = threading.Thread(
+
+        target=monitor_worker,
+
+        daemon=True
+
+    )
+
+    thread.start()
+
+    logger.info(
+        "Monitoring Started"
+    )
+
+
+# =========================
+# SYSTEM ALERTS
+# =========================
+
+@app.get("/system-alerts")
+def system_alerts(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "count":
+        len(
+            SYSTEM_ALERTS
+        ),
+
+        "alerts":
+        SYSTEM_ALERTS
+
+    }
+
+
+# =========================
+# HEALTH SCORE
+# =========================
+
+@app.get("/system-health-score")
+def health_score():
+
+    return {
+
+        "score":
+        system_health_score(),
+
+        "status":
+
+        "healthy"
+
+        if system_health_score() >= 80
+
+        else
+
+        "warning"
+
+    }
+
+
+# =========================
+# ACTIVE USERS
+# =========================
+
+@app.get("/active-users")
+def active_users(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "count":
+        len(
+            ACTIVE_USERS
+        ),
+
+        "users":
+        list(
+            ACTIVE_USERS.keys()
+        )
+
+    }
+
+
+# =========================
+# MONITOR DASHBOARD
+# =========================
+
+@app.get("/monitor-dashboard")
+def monitor_dashboard(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "uptime":
+        get_uptime(),
+
+        "health_score":
+        system_health_score(),
+
+        "cpu":
+        psutil.cpu_percent(),
+
+        "ram":
+        psutil.virtual_memory().percent,
+
+        "disk":
+        psutil.disk_usage(
+            "/"
+        ).percent,
+
+        "alerts":
+        len(
+            SYSTEM_ALERTS
+        ),
+
+        "active_users":
+        len(
+            ACTIVE_USERS
+        ),
+
+        "monitor":
+        MONITOR,
+
+        "self_heal":
+        SELF_HEAL_STATS
+
+    }
+
+
+# =========================
+# SECURITY CHECK
+# =========================
+
+@app.get("/security-audit")
+def security_audit(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "jwt_enabled":
+        True,
+
+        "rate_limit":
+        True,
+
+        "cors_enabled":
+        True,
+
+        "health_score":
+        system_health_score(),
+
+        "active_sessions":
+        len(
+            ACTIVE_USERS
+        )
+
+    }
+    # =========================
+# OTP HELPERS
+# =========================
+
+OTP_STORE = {}
+
+
+def generate_otp():
+
+    return str(
+        randint(
+            100000,
+            999999
+        )
+    )
+
+
+# =========================
+# SEND OTP
+# =========================
+
+@app.post("/send-otp")
+def send_otp(
+
+    email: str
+
+):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id
+
+        FROM users
+
+        WHERE email=?
+        """,
+        (
+            email.lower(),
+        )
+    )
+
+    user = cursor.fetchone()
+
+    if not user:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    otp = generate_otp()
+
+    cursor.execute(
+        """
+        UPDATE users
+
+        SET otp=?
+
+        WHERE email=?
+        """,
+        (
+            otp,
+            email.lower()
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+    OTP_STORE[
+        email.lower()
+    ] = {
+
+        "otp": otp,
+
+        "created":
+        time.time()
+
+    }
+
+    # Future:
+    # email service send here
+
+    return {
+
+        "success": True,
+
+        "otp":
+        otp,
+
+        "message":
+        "OTP generated"
+
+    }
+
+
+# =========================
+# VERIFY OTP
+# =========================
+
+@app.post("/verify-otp")
+def verify_otp(
+
+    email: str,
+
+    otp: str
+
+):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT otp
+
+        FROM users
+
+        WHERE email=?
+        """,
+        (
+            email.lower(),
+        )
+    )
+
+    result = cursor.fetchone()
+
+    if not result:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    stored_otp = result[0]
+
+    if stored_otp != otp:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid OTP"
+        )
+
+    cursor.execute(
+        """
+        UPDATE users
+
+        SET is_verified=1
+
+        WHERE email=?
+        """,
+        (
+            email.lower(),
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+
+        "success": True,
+
+        "message":
+        "Account verified"
+
+    }
+
+
+# =========================
+# FORGOT PASSWORD
+# =========================
+
+@app.post("/forgot-password")
+def forgot_password(
+
+    email: str
+
+):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id
+
+        FROM users
+
+        WHERE email=?
+        """,
+        (
+            email.lower(),
+        )
+    )
+
+    user = cursor.fetchone()
+
+    if not user:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    otp = generate_otp()
+
+    cursor.execute(
+        """
+        UPDATE users
+
+        SET otp=?
+
+        WHERE email=?
+        """,
+        (
+            otp,
+            email.lower()
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+
+        "success": True,
+
+        "otp":
+        otp,
+
+        "message":
+        "Reset OTP generated"
+
+    }
+
+
+# =========================
+# RESET PASSWORD
+# =========================
+
+@app.post("/reset-password")
+def reset_password(
+
+    email: str,
+
+    otp: str,
+
+    new_password: str
+
+):
+
+    validate_password_strength(
+        new_password
+    )
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT otp
+
+        FROM users
+
+        WHERE email=?
+        """,
+        (
+            email.lower(),
+        )
+    )
+
+    result = cursor.fetchone()
+
+    if not result:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    stored_otp = result[0]
+
+    if stored_otp != otp:
+
+        conn.close()
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid OTP"
+        )
+
+    hashed = hash_password(
+        new_password
+    )
+
+    cursor.execute(
+        """
+        UPDATE users
+
+        SET
+
+        password=?,
+        otp=NULL
+
+        WHERE email=?
+        """,
+        (
+            hashed,
+            email.lower()
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {
+
+        "success": True,
+
+        "message":
+        "Password reset successful"
+
+    }
+
+
+# =========================
+# VERIFICATION STATUS
+# =========================
+
+@app.get("/verification-status")
+def verification_status(
+
+    email: str =
+    Depends(get_current_user)
+
+):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT is_verified
+
+        FROM users
+
+        WHERE email=?
+        """,
+        (
+            email,
+        )
+    )
+
+    result = cursor.fetchone()
+
+    conn.close()
+
+    return {
+
+        "verified":
+        bool(
+            result[0]
+        )
+
+    }
+    # =========================
+# AUDIT LOGS
+# =========================
+
+AUDIT_LOGS = []
+
+
+def add_audit_log(
+
+    action: str,
+    user: str,
+    details: str = ""
+
+):
+
+    AUDIT_LOGS.append({
+
+        "time":
+        str(datetime.utcnow()),
+
+        "action":
+        action,
+
+        "user":
+        user,
+
+        "details":
+        details
+
+    })
+
+    if len(AUDIT_LOGS) > 1000:
+
+        AUDIT_LOGS.pop(0)
+
+
+# =========================
+# SECURITY HEADERS
+# =========================
+
+@app.middleware("http")
+async def security_headers(
+
+    request: Request,
+    call_next
+
+):
+
+    response = await call_next(
+        request
+    )
+
+    response.headers[
+        "X-Frame-Options"
+    ] = "DENY"
+
+    response.headers[
+        "X-Content-Type-Options"
+    ] = "nosniff"
+
+    response.headers[
+        "Referrer-Policy"
+    ] = "strict-origin"
+
+    response.headers[
+        "X-XSS-Protection"
+    ] = "1; mode=block"
+
+    return response
+
+
+# =========================
+# REQUEST TRACKER
+# =========================
+
+@app.middleware("http")
+async def request_tracker(
+
+    request: Request,
+    call_next
+
+):
+
+    start = time.time()
+
+    response = await call_next(
+        request
+    )
+
+    duration = round(
+
+        time.time()
+        - start,
+
+        3
+
+    )
+
+    logger.info(
+
+        f"{request.method} "
+        f"{request.url.path} "
+        f"{response.status_code} "
+        f"{duration}s"
+
+    )
+
+    return response
+
+
+# =========================
+# AUDIT API
+# =========================
+
+@app.get("/audit-logs")
+def audit_logs(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "count":
+        len(
+            AUDIT_LOGS
+        ),
+
+        "logs":
+        AUDIT_LOGS
+
+    }
+
+
+# =========================
+# SECURITY REPORT
+# =========================
+
+@app.get("/security-report")
+def security_report(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "jwt_auth":
+        True,
+
+        "cors":
+        True,
+
+        "rate_limit":
+        True,
+
+        "audit_logs":
+        len(
+            AUDIT_LOGS
+        ),
+
+        "health_score":
+        system_health_score()
+
+    }
+
+
+# =========================
+# DATABASE CHECK
+# =========================
+
+def database_ready():
+
+    try:
+
+        conn = get_db()
+
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT 1"
+        )
+
+        conn.close()
+
+        return True
+
+    except:
+
+        return False
+
+
+# =========================
+# STARTUP VALIDATION
+# =========================
+
+@app.on_event("startup")
+async def startup_validation():
+
+    logger.info(
+        "PipeGuard Starting..."
+    )
+
+    if database_ready():
+
+        logger.info(
+            "Database Connected"
+        )
+
+    else:
+
+        logger.error(
+            "Database Failed"
+        )
+
+    logger.info(
+        f"Version {APP_VERSION}"
+    )
+
+
+# =========================
+# BACKUP INFO
+# =========================
+
+@app.get("/backup-info")
+def backup_info(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "database":
+        "pipeguard.db",
+
+        "users":
+        len(
+            ACTIVE_USERS
+        ),
+
+        "reports":
+        "stored in pipeline_reports"
+
+    }
+
+
+# =========================
+# APP INFO
+# =========================
+
+@app.get("/app-info")
+def app_info():
+
+    return {
+
+        "application":
+        "PipeGuard AI",
+
+        "version":
+        APP_VERSION,
+
+        "status":
+        "production",
+
+        "health":
+        system_health_score()
+
+    }
+
+
+# =========================
+# FINAL START MESSAGE
+# =========================
+
+print(
+    "PipeGuard AI Production Layer Loaded"
+)
+# =========================
+# AUTO CLEANUP
+# =========================
+
+def cleanup_memory():
+
+    try:
+
+        if len(ACTIVE_USERS) > 1000:
+
+            ACTIVE_USERS.clear()
+
+        if len(SYSTEM_ALERTS) > 1000:
+
+            SYSTEM_ALERTS.clear()
+
+        if len(AUDIT_LOGS) > 5000:
+
+            del AUDIT_LOGS[:4000]
+
+    except Exception as e:
+
+        logger.error(
+            f"Cleanup Error: {str(e)}"
+        )
+
+
+# =========================
+# MAINTENANCE WORKER
+# =========================
+
+def maintenance_worker():
+
+    while True:
+
+        try:
+
+            cleanup_memory()
+
+            logger.info(
+                "Maintenance Cycle Complete"
+            )
+
+        except Exception as e:
+
+            logger.error(
+                str(e)
+            )
+
+        time.sleep(3600)
+
+
+# =========================
+# START MAINTENANCE THREAD
+# =========================
+
+@app.on_event("startup")
+async def start_maintenance():
+
+    worker = threading.Thread(
+
+        target=maintenance_worker,
+
+        daemon=True
+
+    )
+
+    worker.start()
+
+    logger.info(
+        "Maintenance Started"
+    )
+
+
+# =========================
+# EMAIL CONFIG CHECK
+# =========================
+
+@app.get("/mail-status")
+def mail_status(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "mail_username":
+        bool(
+            os.getenv(
+                "MAIL_USERNAME"
+            )
+        ),
+
+        "mail_password":
+        bool(
+            os.getenv(
+                "MAIL_PASSWORD"
+            )
+        ),
+
+        "mail_server":
+        bool(
+            os.getenv(
+                "MAIL_SERVER"
+            )
+        )
+
+    }
+
+
+# =========================
+# ENVIRONMENT CHECK
+# =========================
+
+@app.get("/environment")
+def environment(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    return {
+
+        "version":
+        APP_VERSION,
+
+        "python":
+        os.sys.version,
+
+        "platform":
+        os.name
+
+    }
+
+
+# =========================
+# FINAL HEALTH REPORT
+# =========================
+
+@app.get("/final-health")
+def final_health():
+
+    return {
+
+        "status":
+        "healthy",
+
+        "database":
+        database_ready(),
+
+        "health_score":
+        system_health_score(),
+
+        "requests":
+        MONITOR[
+            "total_requests"
+        ],
+
+        "errors":
+        MONITOR[
+            "total_errors"
+        ],
+
+        "active_users":
+        len(
+            ACTIVE_USERS
+        )
+
+    }
+
+
+# =========================
+# RESET ALERTS
+# =========================
+
+@app.delete("/reset-alerts")
+def reset_alerts(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    SYSTEM_ALERTS.clear()
+
+    return {
+
+        "success": True,
+
+        "message":
+        "Alerts cleared"
+
+    }
+
+
+# =========================
+# RESET AUDIT LOGS
+# =========================
+
+@app.delete("/reset-audit-logs")
+def reset_audit_logs(
+
+    email: str =
+    Depends(require_admin)
+
+):
+
+    AUDIT_LOGS.clear()
+
+    return {
+
+        "success": True,
+
+        "message":
+        "Audit logs cleared"
+
+    }
+
+
+# =========================
+# FINAL READY API
+# =========================
+
+@app.get("/production-ready")
+def production_ready():
+
+    return {
+
+        "application":
+        "PipeGuard AI",
+
+        "version":
+        APP_VERSION,
+
+        "database":
+        database_ready(),
+
+        "monitoring":
+        True,
+
+        "security":
+        True,
+
+        "status":
+        "ready"
+
+    }
+
+
+# =========================
+# FINAL STARTUP MESSAGE
+# =========================
+
+print("=" * 50)
+print("PIPEGUARD AI V17 READY")
+print("=" * 50)
+    
