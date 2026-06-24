@@ -1265,7 +1265,7 @@ def supported_files():
         ]
 
     }
-    @app.get("/my-reports")
+@app.get("/my-reports")
 def my_reports(
 
     email: str =
