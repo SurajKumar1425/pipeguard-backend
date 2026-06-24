@@ -308,6 +308,11 @@ def signup(
 
 ):
 
+    print("================================")
+    print("Signup Hit")
+    print(user)
+    print("================================")
+
     try:
 
         validate_email(
