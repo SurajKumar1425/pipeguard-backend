@@ -527,7 +527,7 @@ def validate_token_route(
         "valid": True,
         "email": email
     }
-    @app.get("/profile")
+@app.get("/profile")
 def profile(
 
     email: str =
