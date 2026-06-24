@@ -18,7 +18,6 @@ from fastapi.middleware.cors import (
 from pydantic import BaseModel
 
 import pandas as pd
-import re
 
 from database import (
     get_db,
@@ -52,7 +51,7 @@ TEMP_EMAIL_DOMAINS = {
 }
 
 # =========================
-# FASTAPI APP
+# APP INIT
 # =========================
 
 app = FastAPI(
@@ -85,7 +84,7 @@ app.add_middleware(
 )
 
 # =========================
-# DATABASE INIT
+# DATABASE
 # =========================
 
 create_tables()
@@ -115,64 +114,6 @@ class LoginRequest(BaseModel):
 
     password: str
     # =========================
-# SYSTEM APIS
-# =========================
-
-@app.get("/")
-def home():
-
-    return {
-
-        "message":
-            "Welcome to PipeGuard AI 🚀",
-
-        "status":
-            "ONLINE",
-
-        "version":
-            "11.0"
-
-    }
-
-
-@app.get("/health")
-def health():
-
-    return {
-
-        "service":
-            "PipeGuard AI",
-
-        "status":
-            "Healthy"
-
-    }
-
-
-@app.get("/api-status")
-def api_status():
-
-    return {
-
-        "application":
-            "PipeGuard AI",
-
-        "backend_version":
-            "11.0",
-
-        "database":
-            "CONNECTED",
-
-        "authentication":
-            "JWT ENABLED",
-
-        "scan_engine":
-            "ACTIVE"
-
-    }
-
-
-# =========================
 # SIGNUP API
 # =========================
 
@@ -180,14 +121,11 @@ def api_status():
 def signup(user: SignupRequest):
 
     conn = get_db()
-
     cursor = conn.cursor()
 
-    domain = (
-        user.email
-        .split("@")[-1]
-        .lower()
-    )
+    # Temp Email Block
+
+    domain = user.email.split("@")[-1].lower()
 
     if domain in TEMP_EMAIL_DOMAINS:
 
@@ -195,40 +133,36 @@ def signup(user: SignupRequest):
 
         raise HTTPException(
             status_code=400,
-            detail=
-            "Temporary email addresses are not allowed"
+            detail="Temporary email addresses are not allowed"
         )
 
+    # Existing User Check
+
     cursor.execute(
-
         "SELECT email FROM users WHERE email=?",
-
         (user.email,)
-
     )
 
-    existing_user =
-        cursor.fetchone()
+    existing_user = cursor.fetchone()
 
     if existing_user:
 
         conn.close()
 
         raise HTTPException(
-
             status_code=400,
-
-            detail=
-            "Email already registered"
-
+            detail="Email already registered"
         )
 
-    hashed_password =
-        hash_password(
-            user.password
-        )
-        cursor.execute(
+    # Password Hash
 
+    hashed_password = hash_password(
+        user.password
+    )
+
+    # Insert User
+
+    cursor.execute(
         """
         INSERT INTO users
         (
@@ -241,26 +175,20 @@ def signup(user: SignupRequest):
         )
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-
         (
             user.full_name,
-
             user.company_name,
-
             user.phone,
-
             user.email,
-
             hashed_password,
-
             1
         )
-
     )
 
     conn.commit()
-
     conn.close()
+
+    # Auto Login Token
 
     token = create_access_token(
         user.email
@@ -278,9 +206,7 @@ def signup(user: SignupRequest):
             "Bearer"
 
     }
-
-
-# =========================
+    # =========================
 # LOGIN API
 # =========================
 
@@ -288,19 +214,15 @@ def signup(user: SignupRequest):
 def login(data: LoginRequest):
 
     conn = get_db()
-
     cursor = conn.cursor()
 
     cursor.execute(
-
         """
         SELECT password
         FROM users
         WHERE email=?
         """,
-
         (data.email,)
-
     )
 
     user = cursor.fetchone()
@@ -310,12 +232,8 @@ def login(data: LoginRequest):
     if not user:
 
         raise HTTPException(
-
             status_code=401,
-
-            detail=
-            "Invalid email"
-
+            detail="Invalid email"
         )
 
     if not verify_password(
@@ -324,17 +242,14 @@ def login(data: LoginRequest):
     ):
 
         raise HTTPException(
-
             status_code=401,
-
-            detail=
-            "Wrong password"
-
+            detail="Wrong password"
         )
 
     token = create_access_token(
         data.email
     )
+
     return {
 
         "access_token":
@@ -344,9 +259,7 @@ def login(data: LoginRequest):
             "Bearer"
 
     }
-
-
-# =========================
+    # =========================
 # JWT AUTH
 # =========================
 
@@ -358,21 +271,17 @@ def get_current_user(
 
 ):
 
-    token =
-        credentials.credentials
+    token = credentials.credentials
 
-    email =
-        verify_token(token)
+    email = verify_token(
+        token
+    )
 
     if not email:
 
         raise HTTPException(
-
             status_code=401,
-
-            detail=
-            "Invalid Token"
-
+            detail="Invalid Token"
         )
 
     return email
@@ -418,9 +327,7 @@ def my_workspace(
         ]
 
     }
-
-
-# =========================
+    # =========================
 # UPLOAD PIPELINE API
 # =========================
 
@@ -429,13 +336,17 @@ def upload_pipeline(
 
     pipeline_name: str,
 
-    file: UploadFile =
-    File(...),
+    file: UploadFile = File(...),
 
-    email: str =
-    Depends(get_current_user)
+    email: str = Depends(
+        get_current_user
+    )
 
 ):
+
+    # =====================
+    # READ CSV
+    # =====================
 
     df = pd.read_csv(
         file.file
@@ -467,7 +378,8 @@ def upload_pipeline(
                 f"{col} is empty"
 
             )
-                # =====================
+
+    # =====================
     # DUPLICATE ROWS
     # =====================
 
@@ -489,8 +401,7 @@ def upload_pipeline(
             f"Duplicate row detected"
 
         )
-
-    # =====================
+            # =====================
     # INVALID EMAILS
     # =====================
 
@@ -501,24 +412,15 @@ def upload_pipeline(
     if "Email" in df.columns:
 
         email_series = (
-
             df["Email"]
-
             .fillna("")
-
             .astype(str)
-
             .str.strip()
-
         )
 
-        invalid_mask = ~
-
-            email_series.str.match(
-
-                r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
-
-            )
+        invalid_mask = ~email_series.str.match(
+            r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+        )
 
         invalid_emails = int(
             invalid_mask.sum()
@@ -531,10 +433,7 @@ def upload_pipeline(
         for row in invalid_rows[:20]:
 
             email_details.append(
-
-                f"Row {row + 2}: "
-                f"Invalid email format"
-
+                f"Row {row + 2}: Invalid email format"
             )
 
     # =====================
@@ -548,34 +447,17 @@ def upload_pipeline(
     if "Phone" in df.columns:
 
         phone_series = (
-
             df["Phone"]
-
             .fillna("")
-
             .astype(str)
-
-            .str.replace(
-                ".0",
-                "",
-                regex=False
-            )
-
-            .str.replace(
-                " ",
-                "",
-                regex=False
-            )
-
+            .str.replace(".0", "", regex=False)
+            .str.replace(" ", "", regex=False)
             .str.strip()
-
         )
 
-        invalid_phone_mask = ~
-
-            phone_series.str.match(
-                r"^\d{10}$"
-            )
+        invalid_phone_mask = ~phone_series.str.match(
+            r"^\d{10}$"
+        )
 
         invalid_phones = int(
             invalid_phone_mask.sum()
@@ -588,12 +470,10 @@ def upload_pipeline(
         for row in invalid_phone_rows[:20]:
 
             phone_details.append(
-
-                f"Row {row + 2}: "
-                f"Invalid phone number"
-
+                f"Row {row + 2}: Invalid phone number"
             )
-                # =====================
+
+    # =====================
     # NEGATIVE REVENUE
     # =====================
 
@@ -604,17 +484,12 @@ def upload_pipeline(
     if "Order_Value" in df.columns:
 
         revenue_series = pd.to_numeric(
-
             df["Order_Value"],
-
             errors="coerce"
-
         )
 
         negative_mask = (
-
             revenue_series.fillna(0) < 0
-
         )
 
         negative_revenue = int(
@@ -628,10 +503,7 @@ def upload_pipeline(
         for row in negative_rows[:20]:
 
             revenue_details.append(
-
-                f"Row {row + 2}: "
-                f"Negative revenue detected"
-
+                f"Row {row + 2}: Negative revenue detected"
             )
 
     # =====================
@@ -662,31 +534,26 @@ def upload_pipeline(
     issues = []
 
     if missing_values > 0:
-
         issues.append(
             f"{missing_values} missing values found"
         )
 
     if duplicate_rows > 0:
-
         issues.append(
             f"{duplicate_rows} duplicate rows found"
         )
 
     if invalid_emails > 0:
-
         issues.append(
             f"{invalid_emails} invalid emails found"
         )
 
     if invalid_phones > 0:
-
         issues.append(
             f"{invalid_phones} invalid phone numbers found"
         )
 
     if negative_revenue > 0:
-
         issues.append(
             f"{negative_revenue} negative revenue records found"
         )
@@ -696,8 +563,7 @@ def upload_pipeline(
         issues.append(
             "No issues detected"
         )
-
-    # =====================
+            # =====================
     # DETAILS OBJECT
     # =====================
 
@@ -719,6 +585,7 @@ def upload_pipeline(
             revenue_details
 
     }
+
     # =====================
     # SAVE REPORT
     # =====================
@@ -728,7 +595,6 @@ def upload_pipeline(
     cursor = conn.cursor()
 
     cursor.execute(
-
         """
         INSERT INTO pipeline_reports
         (
@@ -739,18 +605,12 @@ def upload_pipeline(
         )
         VALUES (?, ?, ?, ?)
         """,
-
         (
             email,
-
             pipeline_name,
-
             score,
-
             ", ".join(issues)
-
         )
-
     )
 
     conn.commit()
@@ -817,7 +677,6 @@ def my_reports(
     cursor = conn.cursor()
 
     cursor.execute(
-
         """
         SELECT
             pipeline_name,
@@ -828,9 +687,7 @@ def my_reports(
         WHERE company_email=?
         ORDER BY created_at DESC
         """,
-
         (email,)
-
     )
 
     reports = cursor.fetchall()
@@ -841,25 +698,21 @@ def my_reports(
 
     for report in reports:
 
-        report_list.append(
+        report_list.append({
 
-            {
+            "pipeline":
+                report[0],
 
-                "pipeline":
-                    report[0],
+            "health_score":
+                report[1],
 
-                "health_score":
-                    report[1],
+            "issues":
+                report[2],
 
-                "issues":
-                    report[2],
+            "created_at":
+                report[3]
 
-                "created_at":
-                    report[3]
-
-            }
-
-        )
+        })
 
     return {
 
