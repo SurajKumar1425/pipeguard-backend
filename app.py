@@ -349,34 +349,33 @@ def signup(
 
     if not user.phone.isdigit():
 
-        conn.close()
+    conn.close()
 
-        raise HTTPException(
-            status_code=400,
-            detail=
-            "Phone number must contain only digits"
-        )
+    raise HTTPException(
+        status_code=400,
+        detail="Phone number must contain only digits"
+    )
 
-    if len(user.phone) != 10:
+if not re.match(
+    r"^[6-9]\d{9}$",
+    user.phone
+):
 
-        conn.close()
+    conn.close()
 
-        raise HTTPException(
-            status_code=400,
-            detail=
-            "Phone number must be exactly 10 digits"
-        )
+    raise HTTPException(
+        status_code=400,
+        detail="Enter a valid Indian mobile number"
+    )
 
-    if user.phone in BLOCKED_PHONES:
+if user.phone in BLOCKED_PHONES:
 
-        conn.close()
+    conn.close()
 
-        raise HTTPException(
-            status_code=400,
-            detail=
-            "Invalid phone number"
-        )
-
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid phone number"
+    )
     # =====================
     # USER EXISTS CHECK
     # =====================
