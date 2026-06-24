@@ -135,6 +135,7 @@ PHONE_REGEX = re.compile(
 
     r"^[6-9]\d{9}$"
 
+<<<<<<< HEAD
 )
 
 # =========================
@@ -173,6 +174,44 @@ app.add_middleware(
 )
 
 # =========================
+=======
+)
+
+# =========================
+# FASTAPI APP
+# =========================
+
+app = FastAPI(
+
+    title="PipeGuard AI",
+
+    description=
+    "AI Data Quality Platform",
+
+    version="15.0"
+
+)
+
+# =========================
+# CORS
+# =========================
+
+app.add_middleware(
+
+    CORSMiddleware,
+
+    allow_origins=["*"],
+
+    allow_credentials=True,
+
+    allow_methods=["*"],
+
+    allow_headers=["*"]
+
+)
+
+# =========================
+>>>>>>> 8c6eff2 (fix upload api)
 # DATABASE INIT
 # =========================
 
@@ -2670,4 +2709,8 @@ async def global_exception_handler(
         "error":
             str(exc)
 
+<<<<<<< HEAD
     }
+=======
+    }
+>>>>>>> 8c6eff2 (fix upload api)
