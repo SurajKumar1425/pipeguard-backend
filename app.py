@@ -116,16 +116,22 @@ def signup(user: SignupRequest):
         """
         INSERT INTO users
         (
+            full_name,
             company_name,
+            phone,
             email,
-            password
+            password,
+            is_verified
         )
-        VALUES (?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
+            user.full_name,
             user.company_name,
+            user.phone,
             user.email,
-            hashed_password
+            hashed_password,
+            1
         )
     )
 
