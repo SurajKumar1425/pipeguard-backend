@@ -1735,7 +1735,7 @@ def all_users(
         users
 
     }
-    @app.get("/")
+@app.get("/")
 def home():
 
     return {
