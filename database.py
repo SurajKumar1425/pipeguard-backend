@@ -1,12 +1,11 @@
 import sqlite3
 
-
 DATABASE_NAME = "pipeguard.db"
 
 
-# -------------------------
-# Get Database Connection
-# -------------------------
+# =========================
+# DATABASE CONNECTION
+# =========================
 
 def get_db():
 
@@ -18,9 +17,9 @@ def get_db():
     return conn
 
 
-# -------------------------
-# Create Tables
-# -------------------------
+# =========================
+# CREATE TABLES
+# =========================
 
 def create_tables():
 
@@ -29,7 +28,9 @@ def create_tables():
     cursor = conn.cursor()
 
 
-    # Users Table
+    # =========================
+    # USERS TABLE
+    # =========================
 
     cursor.execute(
         """
@@ -37,11 +38,19 @@ def create_tables():
 
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            company_name TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+
+            company_name TEXT,
+
+            phone TEXT NOT NULL,
 
             email TEXT UNIQUE NOT NULL,
 
             password TEXT NOT NULL,
+
+            is_verified INTEGER DEFAULT 0,
+
+            otp TEXT,
 
             created_at TIMESTAMP
             DEFAULT CURRENT_TIMESTAMP
@@ -51,7 +60,9 @@ def create_tables():
     )
 
 
-    # Pipeline Reports Table
+    # =========================
+    # PIPELINE REPORTS TABLE
+    # =========================
 
     cursor.execute(
         """
