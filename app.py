@@ -2,8 +2,11 @@ import os
 import json
 import time
 import logging
+import threading
+
 from datetime import datetime
 from random import randint
+from typing import Optional
 
 import pandas as pd
 import psutil
@@ -35,6 +38,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from email_validator import (
+    validate_email,
+    EmailNotValidError
+)
+
 from database import (
     get_db,
     create_tables
@@ -47,89 +55,217 @@ from auth import (
     verify_token
 )
 
-APP_VERSION = "17.0"
+# =========================
+# APP CONFIG
+# =========================
+
+APP_NAME = "PipeGuard AI"
+
+APP_VERSION = "18.0"
 
 logging.basicConfig(
+
     level=logging.INFO,
+
     format="%(asctime)s | %(levelname)s | %(message)s"
+
 )
 
-logger = logging.getLogger("PipeGuard")
+logger = logging.getLogger(
+    "PipeGuard"
+)
+
+# =========================
+# FASTAPI
+# =========================
 
 app = FastAPI(
-    title="PipeGuard AI",
-    description="AI Data Quality Platform",
+
+    title=APP_NAME,
+
+    description="AI Powered Data Reliability Platform",
+
     version=APP_VERSION
+
 )
+
+# =========================
+# CORS
+# =========================
 
 app.add_middleware(
+
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+
+    allow_origins=[
+
+        "http://localhost:5173",
+
+        "http://127.0.0.1:5173",
+
+        "https://pipeguard-dashboard.vercel.app"
+
+    ],
+
+    allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"]
+
 )
 
+# =========================
+# RATE LIMITER
+# =========================
+
 limiter = Limiter(
+
     key_func=get_remote_address
+
 )
 
 app.state.limiter = limiter
 
+# =========================
+# SECURITY
+# =========================
+
 security = HTTPBearer()
 
-ACTIVE_USERS = {}
-
-MONITOR = {
-    "total_requests": 0,
-    "successful_uploads": 0,
-    "failed_uploads": 0,
-    "total_errors": 0
-}
+# =========================
+# DATABASE
+# =========================
 
 create_tables()
 
+# =========================
+# MEMORY STORE
+# =========================
+
+ACTIVE_USERS = {}
+
+OTP_STORE = {}
+
+SYSTEM_ALERTS = []
+
+AUDIT_LOGS = []
+
+SERVER_START_TIME = time.time()
+
+# =========================
+# MONITOR
+# =========================
+
+MONITOR = {
+
+    "total_requests": 0,
+
+    "successful_uploads": 0,
+
+    "failed_uploads": 0,
+
+    "total_errors": 0
+
+}
+
+SELF_HEAL_STATS = {
+
+    "high_cpu_events": 0,
+
+    "high_memory_events": 0,
+
+    "database_failures": 0,
+
+    "alerts_generated": 0
+
+}
+
+# =========================
+# STARTUP
+# =========================
+
+@app.on_event("startup")
+async def startup():
+
+    create_tables()
+
+    logger.info(
+
+        f"{APP_NAME} V{APP_VERSION} Started"
+
+    )
+
+# =========================
+# RATE LIMIT HANDLER
+# =========================
 
 @app.exception_handler(
     RateLimitExceeded
 )
 async def rate_limit_handler(
+
     request: Request,
+
     exc: RateLimitExceeded
+
 ):
+
     return JSONResponse(
+
         status_code=429,
+
         content={
+
             "success": False,
-            "message": "Too many requests"
+
+            "detail": "Too many requests"
+
         }
+
     )
 
+# =========================
+# REQUEST LOGGER
+# =========================
 
 @app.middleware("http")
 async def request_logger(
+
     request: Request,
+
     call_next
+
 ):
+
     start = time.time()
 
     MONITOR["total_requests"] += 1
 
     try:
+
         response = await call_next(
             request
         )
 
         duration = round(
+
             time.time() - start,
+
             3
+
         )
 
         logger.info(
+
             f"{request.method} "
+
             f"{request.url.path} "
+
             f"{response.status_code} "
+
             f"{duration}s"
+
         )
 
         return response
@@ -142,161 +278,268 @@ async def request_logger(
 
         raise
 
-
-def create_user_session(
-    email: str
-):
-    ACTIVE_USERS[email] = str(
-        datetime.utcnow()
-    )
-
-
-def destroy_user_session(
-    email: str
-):
-    ACTIVE_USERS.pop(
-        email,
-        None
-    )
-
-
-def get_current_user(
-    credentials:
-    HTTPAuthorizationCredentials
-    = Depends(security)
-):
-    token = credentials.credentials
-
-    email = verify_token(
-        token
-    )
-
-    if not email:
-
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token"
-        )
-
-    return email
-
-
-def require_admin(
-    email: str =
-    Depends(get_current_user)
-):
-    ADMIN_EMAILS = [
-        "admin@pipeguard.ai"
-    ]
-
-    if email not in ADMIN_EMAILS:
-
-        raise HTTPException(
-            status_code=403,
-            detail="Admin access required"
-        )
-
-    return email
-
-
-@app.on_event("startup")
-async def startup():
-
-    create_tables()
-
-    logger.info(
-        "PipeGuard Started"
-    )
-    from typing import Optional
-from email_validator import (
-    validate_email,
-    EmailNotValidError
-)
-
-# ---------- MODELS ----------
+# =========================
+# NEXT SECTION
+# =========================
+# =========================
+# REQUEST MODELS
+# =========================
 
 class SignupRequest(BaseModel):
+
     full_name: str
+
     company_name: Optional[str] = ""
+
     phone: str
+
     email: EmailStr
+
     password: str
+
     country_code: str = "+91"
 
 
 class LoginRequest(BaseModel):
+
     email: EmailStr
+
     password: str
 
 
 class ChangePasswordRequest(BaseModel):
+
     old_password: str
+
     new_password: str
 
 
 class UpdateProfileRequest(BaseModel):
+
     full_name: Optional[str] = None
+
     company_name: Optional[str] = None
+
     phone: Optional[str] = None
 
 
-# ---------- VALIDATION ----------
+# =========================
+# PASSWORD VALIDATION
+# =========================
 
 def validate_password_strength(
+
     password: str
+
 ):
 
     if len(password) < 8:
 
         raise HTTPException(
+
             status_code=400,
-            detail="Password must be at least 8 characters"
+
+            detail="Password must contain at least 8 characters"
+
         )
 
     has_upper = any(
+
         c.isupper()
+
         for c in password
+
     )
 
     has_lower = any(
+
         c.islower()
+
         for c in password
+
     )
 
     has_digit = any(
+
         c.isdigit()
+
         for c in password
+
     )
 
     if not (
+
         has_upper
         and has_lower
         and has_digit
+
     ):
+
         raise HTTPException(
+
             status_code=400,
-            detail="Password must contain upper, lower and number"
+
+            detail="Password must contain uppercase, lowercase and number"
+
         )
 
 
+# =========================
+# PHONE VALIDATION
+# =========================
+
 def validate_phone_number(
+
     phone: str
+
 ):
 
     digits = "".join(
-        c for c in phone
+
+        c
+
+        for c in phone
+
         if c.isdigit()
+
     )
 
-    if len(digits) < 10:
+    if len(digits) != 10:
 
         raise HTTPException(
+
             status_code=400,
+
             detail="Invalid phone number"
+
         )
 
 
-# ---------- SIGNUP ----------
+# =========================
+# USER SESSION
+# =========================
+
+def create_user_session(
+
+    email: str
+
+):
+
+    ACTIVE_USERS[email] = {
+
+        "login_time": str(
+
+            datetime.utcnow()
+
+        )
+
+    }
+
+
+def destroy_user_session(
+
+    email: str
+
+):
+
+    ACTIVE_USERS.pop(
+
+        email,
+
+        None
+
+    )
+
+
+# =========================
+# CURRENT USER
+# =========================
+
+def get_current_user(
+
+    credentials:
+
+    HTTPAuthorizationCredentials
+
+    = Depends(security)
+
+):
+
+    token = credentials.credentials
+
+    email = verify_token(
+
+        token
+
+    )
+
+    if email is None:
+
+        raise HTTPException(
+
+            status_code=401,
+
+            detail="Invalid or Expired Token"
+
+        )
+
+    return email
+
+
+# =========================
+# ADMIN AUTH
+# =========================
+
+def require_admin(
+
+    email: str =
+
+    Depends(
+
+        get_current_user
+
+    )
+
+):
+
+    if email != "admin@pipeguard.ai":
+
+        raise HTTPException(
+
+            status_code=403,
+
+            detail="Admin Access Required"
+
+        )
+
+    return email
+
+
+# =========================
+# OTP
+# =========================
+
+def generate_otp():
+
+    return str(
+
+        randint(
+
+            100000,
+
+            999999
+
+        )
+
+    )
+
+
+# =========================
+# NEXT SECTION
+# =========================
+# =========================
+# SIGNUP
+# =========================
 
 @app.post("/signup")
 @limiter.limit("5/minute")
@@ -308,24 +551,6 @@ def signup(
 
 ):
 
-    print("================================")
-    print("Signup Hit")
-    print(user)
-    print("================================")
-
-    try:
-
-        validate_email(
-            user.email
-        )
-
-    except EmailNotValidError:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid email"
-        )
-
     validate_phone_number(
         user.phone
     )
@@ -335,86 +560,125 @@ def signup(
     )
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
+
         """
         SELECT id
+
         FROM users
+
         WHERE email=?
+
         """,
+
         (
             user.email.lower(),
         )
+
     )
 
-    existing = cursor.fetchone()
-
-    if existing:
+    if cursor.fetchone():
 
         conn.close()
 
         raise HTTPException(
+
             status_code=400,
-            detail="Email already exists"
+
+            detail="Email already registered"
+
         )
 
-    encrypted_password = (
-        hash_password(
-            user.password
-        )
+    hashed_password = hash_password(
+
+        user.password
+
     )
 
     cursor.execute(
+
         """
-        INSERT INTO users (
+        INSERT INTO users(
 
             full_name,
+
             company_name,
+
             phone,
+
             email,
+
             password,
+
             country_code,
+
             is_verified
 
         )
 
-        VALUES (
+        VALUES(
 
-            ?, ?, ?, ?, ?, ?, ?
+            ?,?,?,?,?,?,?
 
         )
+
         """,
+
         (
+
             user.full_name,
+
             user.company_name,
+
             user.phone,
+
             user.email.lower(),
-            encrypted_password,
+
+            hashed_password,
+
             user.country_code,
+
             1
+
         )
+
     )
 
     conn.commit()
+
     conn.close()
 
     token = create_access_token(
+
         user.email.lower()
+
     )
 
     create_user_session(
+
         user.email.lower()
+
     )
 
     return {
+
         "success": True,
-        "message": "Signup successful",
-        "token": token
+
+        "message": "Signup Successful",
+
+        "token": token,
+
+        "email": user.email.lower()
+
     }
 
 
-# ---------- LOGIN ----------
+# =========================
+# LOGIN
+# =========================
 
 @app.post("/login")
 @limiter.limit("10/minute")
@@ -427,17 +691,26 @@ def login(
 ):
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
+
         """
         SELECT password
+
         FROM users
+
         WHERE email=?
+
         """,
+
         (
+
             user.email.lower(),
+
         )
+
     )
 
     result = cursor.fetchone()
@@ -447,39 +720,118 @@ def login(
     if not result:
 
         raise HTTPException(
+
             status_code=401,
-            detail="Invalid email"
+
+            detail="Invalid Email"
+
         )
 
-    stored_password = (
-        result[0]
-    )
-
     if not verify_password(
+
         user.password,
-        stored_password
+
+        result[0]
+
     ):
+
         raise HTTPException(
+
             status_code=401,
-            detail="Invalid password"
+
+            detail="Invalid Password"
+
         )
 
     token = create_access_token(
+
         user.email.lower()
+
     )
 
     create_user_session(
+
         user.email.lower()
+
     )
 
     return {
+
         "success": True,
+
         "token": token,
-        "email": user.email
+
+        "email": user.email.lower()
+
     }
 
 
-# ---------- CURRENT USER ----------
+# =========================
+# LOGOUT
+# =========================
+
+@app.post("/logout")
+def logout(
+
+    email: str =
+
+    Depends(
+
+        get_current_user
+
+    )
+
+):
+
+    destroy_user_session(
+
+        email
+
+    )
+
+    return {
+
+        "success": True,
+
+        "message": "Logout Successful"
+
+    }
+
+
+# =========================
+# TOKEN VALIDATION
+# =========================
+
+@app.get("/validate-token")
+def validate_token(
+
+    email: str =
+
+    Depends(
+
+        get_current_user
+
+    )
+
+):
+
+    return {
+
+        "success": True,
+
+        "valid": True,
+
+        "email": email
+
+    }
+
+
+# =========================
+# NEXT SECTION
+# =========================
+# =========================
+# CURRENT USER
+# =========================
 
 @app.get("/current-user")
 def current_user(
@@ -490,45 +842,18 @@ def current_user(
 ):
 
     return {
+
         "success": True,
+
         "email": email
+
     }
 
 
-# ---------- LOGOUT ----------
+# =========================
+# PROFILE
+# =========================
 
-@app.post("/logout")
-def logout(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    destroy_user_session(
-        email
-    )
-
-    return {
-        "success": True,
-        "message": "Logged out"
-    }
-
-
-# ---------- TOKEN VALIDATION ----------
-
-@app.get("/validate-token")
-def validate_token_route(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    return {
-        "valid": True,
-        "email": email
-    }
 @app.get("/profile")
 def profile(
 
@@ -538,17 +863,24 @@ def profile(
 ):
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
+
         """
         SELECT
 
             full_name,
+
             company_name,
+
             phone,
+
             email,
+
             plan,
+
             created_at
 
         FROM users
@@ -556,9 +888,13 @@ def profile(
         WHERE email=?
 
         """,
+
         (
+
             email,
+
         )
+
     )
 
     user = cursor.fetchone()
@@ -568,21 +904,35 @@ def profile(
     if not user:
 
         raise HTTPException(
+
             status_code=404,
+
             detail="User not found"
+
         )
 
     return {
 
+        "success": True,
+
         "full_name": user[0],
+
         "company_name": user[1],
+
         "phone": user[2],
+
         "email": user[3],
+
         "plan": user[4],
+
         "created_at": user[5]
 
     }
 
+
+# =========================
+# UPDATE PROFILE
+# =========================
 
 @app.put("/update-profile")
 def update_profile(
@@ -594,64 +944,70 @@ def update_profile(
 
 ):
 
-    conn = get_db()
-    cursor = conn.cursor()
-
     if data.phone:
 
         validate_phone_number(
+
             data.phone
+
         )
 
+    conn = get_db()
+
+    cursor = conn.cursor()
+
     cursor.execute(
+
         """
         UPDATE users
 
         SET
 
-        full_name =
-        COALESCE(
-            ?, full_name
-        ),
+        full_name=COALESCE(?,full_name),
 
-        company_name =
-        COALESCE(
-            ?, company_name
-        ),
+        company_name=COALESCE(?,company_name),
 
-        phone =
-        COALESCE(
-            ?, phone
-        )
+        phone=COALESCE(?,phone)
 
         WHERE email=?
 
         """,
 
         (
+
             data.full_name,
+
             data.company_name,
+
             data.phone,
+
             email
+
         )
+
     )
 
     conn.commit()
+
     conn.close()
 
     return {
 
         "success": True,
-        "message": "Profile updated"
+
+        "message": "Profile Updated"
 
     }
 
 
+# =========================
+# CHANGE PASSWORD
+# =========================
+
 @app.post("/change-password")
 def change_password(
 
-    data:
-    ChangePasswordRequest,
+    data: ChangePasswordRequest,
 
     email: str =
     Depends(get_current_user)
@@ -659,13 +1015,17 @@ def change_password(
 ):
 
     validate_password_strength(
+
         data.new_password
+
     )
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
+
         """
         SELECT password
 
@@ -674,9 +1034,13 @@ def change_password(
         WHERE email=?
 
         """,
+
         (
+
             email,
+
         )
+
     )
 
     result = cursor.fetchone()
@@ -686,29 +1050,39 @@ def change_password(
         conn.close()
 
         raise HTTPException(
+
             status_code=404,
+
             detail="User not found"
+
         )
 
-    stored_password = result[0]
-
     if not verify_password(
+
         data.old_password,
-        stored_password
+
+        result[0]
+
     ):
 
         conn.close()
 
         raise HTTPException(
+
             status_code=400,
+
             detail="Old password incorrect"
+
         )
 
     new_hash = hash_password(
+
         data.new_password
+
     )
 
     cursor.execute(
+
         """
         UPDATE users
 
@@ -717,22 +1091,33 @@ def change_password(
         WHERE email=?
 
         """,
+
         (
+
             new_hash,
+
             email
+
         )
+
     )
 
     conn.commit()
+
     conn.close()
 
     return {
 
         "success": True,
-        "message": "Password changed"
+
+        "message": "Password Changed"
 
     }
 
+
+# =========================
+# DELETE ACCOUNT
+# =========================
 
 @app.delete("/delete-account")
 def delete_account(
@@ -743,191 +1128,117 @@ def delete_account(
 ):
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
-        """
-        DELETE FROM users
 
-        WHERE email=?
+        "DELETE FROM users WHERE email=?",
 
-        """,
         (
+
             email,
+
         )
+
     )
 
     cursor.execute(
-        """
-        DELETE FROM pipeline_reports
 
-        WHERE company_email=?
+        "DELETE FROM pipeline_reports WHERE company_email=?",
 
-        """,
         (
+
             email,
+
         )
+
     )
 
     conn.commit()
+
     conn.close()
 
     destroy_user_session(
+
         email
+
     )
 
     return {
 
         "success": True,
-        "message": "Account deleted"
+
+        "message": "Account Deleted"
 
     }
 
 
-@app.get("/my-workspace")
-def my_workspace(
+# =========================
+# NEXT SECTION
+# =========================
+# =========================
+# FILE SETTINGS
+# =========================
 
-    email: str =
-    Depends(get_current_user)
+ALLOWED_EXTENSIONS = {
 
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-
-        """,
-        (
-            email,
-        )
-    )
-
-    total_reports = (
-        cursor.fetchone()[0]
-    )
-
-    cursor.execute(
-        """
-        SELECT AVG(
-            health_score
-        )
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-
-        """,
-        (
-            email,
-        )
-    )
-
-    avg_score = (
-        cursor.fetchone()[0]
-    )
-
-    conn.close()
-
-    return {
-
-        "email": email,
-
-        "total_reports":
-        total_reports,
-
-        "average_health_score":
-        round(
-            avg_score or 0,
-            2
-        ),
-
-        "active_session":
-        True
-
-    }
-
-
-@app.get("/user-exists")
-def user_exists(
-
-    email: str
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-
-        FROM users
-
-        WHERE email=?
-
-        """,
-        (
-            email.lower(),
-        )
-    )
-
-    exists = (
-        cursor.fetchone()
-        is not None
-    )
-
-    conn.close()
-
-    return {
-
-        "exists": exists
-
-    }
-    ALLOWED_EXTENSIONS = {
     ".csv",
+
     ".xlsx",
+
     ".xls",
+
     ".json",
+
     ".txt"
+
 }
 
 MAX_FILE_SIZE_MB = 20
 
 
+# =========================
+# VALIDATE FILE
+# =========================
+
 def validate_file(
+
     file: UploadFile
+
 ):
 
-    filename = (
-        file.filename.lower()
-    )
+    filename = file.filename.lower()
 
-    extension = (
-        os.path.splitext(
-            filename
-        )[1]
-    )
+    extension = os.path.splitext(
+
+        filename
+
+    )[1]
 
     if extension not in ALLOWED_EXTENSIONS:
 
         raise HTTPException(
+
             status_code=400,
+
             detail="Unsupported file format"
+
         )
 
     return extension
 
 
+# =========================
+# LOAD FILE
+# =========================
+
 def load_file(
+
     file: UploadFile,
+
     extension: str
+
 ):
 
     try:
@@ -935,183 +1246,263 @@ def load_file(
         if extension == ".csv":
 
             return pd.read_csv(
+
                 file.file
+
             )
 
-        elif extension in [
+        if extension in [
+
             ".xlsx",
+
             ".xls"
+
         ]:
 
             return pd.read_excel(
+
                 file.file
+
             )
 
-        elif extension == ".json":
+        if extension == ".json":
 
             return pd.read_json(
+
                 file.file
+
             )
 
-        elif extension == ".txt":
+        if extension == ".txt":
 
             return pd.read_csv(
+
                 file.file,
+
                 sep=None,
+
                 engine="python"
+
             )
 
     except Exception as e:
 
         raise HTTPException(
+
             status_code=400,
-            detail=f"Unable to read file: {str(e)}"
+
+            detail=f"Unable to read file : {str(e)}"
+
         )
 
 
+# =========================
+# HEALTH SCORE
+# =========================
+
 def calculate_health_score(
+
     df: pd.DataFrame
+
 ):
 
     rows = len(df)
 
     if rows == 0:
+
         return 0
 
-    missing_values = int(
+    missing = int(
+
         df.isnull()
+
         .sum()
+
         .sum()
+
     )
 
-    duplicate_rows = int(
+    duplicates = int(
+
         df.duplicated()
+
         .sum()
+
     )
 
-    total_cells = (
-        rows *
-        len(df.columns)
+    total_cells = max(
+
+        rows * len(df.columns),
+
+        1
+
     )
 
     missing_percent = (
-        missing_values /
-        max(total_cells, 1)
+
+        missing / total_cells
+
     ) * 100
 
     duplicate_percent = (
-        duplicate_rows /
-        max(rows, 1)
+
+        duplicates / rows
+
     ) * 100
 
     score = 100
 
     score -= (
+
         missing_percent * 0.6
+
     )
 
     score -= (
+
         duplicate_percent * 0.4
+
     )
 
     return max(
+
         0,
+
         round(score)
+
     )
 
 
+# =========================
+# NEXT SECTION
+# =========================
+# =========================
+# DETECT ISSUES
+# =========================
+
 def detect_issues(
+
     df: pd.DataFrame
+
 ):
 
     issues = []
 
     missing = int(
+
         df.isnull()
+
         .sum()
+
         .sum()
+
     )
 
     duplicates = int(
+
         df.duplicated()
+
         .sum()
+
     )
 
     if missing > 0:
 
         issues.append(
-            f"{missing} missing values"
+
+            f"{missing} Missing Values"
+
         )
 
     if duplicates > 0:
 
         issues.append(
-            f"{duplicates} duplicate rows"
+
+            f"{duplicates} Duplicate Rows"
+
         )
 
     for column in df.columns:
 
-        null_pct = (
-            df[column]
-            .isnull()
-            .mean()
-        ) * 100
+        try:
 
-        if null_pct > 50:
+            null_percent = (
 
-            issues.append(
-                f"{column} has >50% null values"
-            )
+                df[column]
+
+                .isnull()
+
+                .mean()
+
+            ) * 100
+
+            if null_percent > 50:
+
+                issues.append(
+
+                    f"{column} has more than 50% null values"
+
+                )
+
+        except:
+
+            pass
 
     return issues
 
 
+# =========================
+# AUTO CLEAN
+# =========================
+
 def auto_clean_dataframe(
+
     df: pd.DataFrame
+
 ):
 
     report = {}
 
-    report[
-        "rows_before"
-    ] = len(df)
+    report["rows_before"] = len(df)
 
-    report[
-        "duplicates_removed"
-    ] = int(
+    report["duplicates_removed"] = int(
+
         df.duplicated()
+
         .sum()
+
     )
 
     df = df.drop_duplicates()
 
-    for col in df.columns:
+    for column in df.columns:
 
         try:
 
-            if (
-                df[col].dtype
-                == "object"
-            ):
+            if df[column].dtype == "object":
 
-                df[col] = (
-                    df[col]
+                df[column] = (
+
+                    df[column]
+
                     .astype(str)
+
                     .str.strip()
+
                 )
 
         except:
+
             pass
 
-    report[
-        "rows_after"
-    ] = len(df)
+    report["rows_after"] = len(df)
 
-    return (
-        df,
-        report
-    )
+    return df, report
 
+
+# =========================
+# UPLOAD PIPELINE
+# =========================
 
 @app.post("/upload-pipeline")
 @limiter.limit("20/minute")
@@ -1123,2433 +1514,125 @@ def upload_pipeline(
 
     file: UploadFile = File(...),
 
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    try:
-
-        extension = validate_file(
-            file
-        )
-
-        df = load_file(
-            file,
-            extension
-        )
-
-        original_rows = len(df)
-
-        cleaned_df, clean_report = (
-            auto_clean_dataframe(
-                df
-            )
-        )
-
-        health_score = (
-            calculate_health_score(
-                cleaned_df
-            )
-        )
-
-        issues = detect_issues(
-            cleaned_df
-        )
-
-        conn = get_db()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO pipeline_reports (
-
-                company_email,
-                pipeline_name,
-                file_type,
-                health_score,
-                issues,
-                total_rows,
-                total_columns
-
-            )
-
-            VALUES (
-
-                ?, ?, ?, ?, ?, ?, ?
-
-            )
-            """,
-
-            (
-                email,
-                pipeline_name,
-                extension,
-                health_score,
-                json.dumps(
-                    issues
-                ),
-                len(cleaned_df),
-                len(
-                    cleaned_df.columns
-                )
-            )
-        )
-
-        conn.commit()
-        conn.close()
-
-        MONITOR[
-            "successful_uploads"
-        ] += 1
-
-        return {
-
-            "success": True,
-
-            "pipeline_name":
-            pipeline_name,
-
-            "health_score":
-            health_score,
-
-            "issues":
-            issues,
-
-            "rows":
-            len(cleaned_df),
-
-            "columns":
-            len(
-                cleaned_df.columns
-            ),
-
-            "clean_report":
-            clean_report,
-
-            "original_rows":
-            original_rows
-
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-
-        MONITOR[
-            "failed_uploads"
-        ] += 1
-
-        logger.error(
-            str(e)
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="Upload failed"
-        )
-
-
-@app.get("/supported-files")
-def supported_files():
-
-    return {
-
-        "supported_files": [
-
-            "csv",
-            "xlsx",
-            "xls",
-            "json",
-            "txt"
-
-        ]
-
-    }
-@app.get("/my-reports")
-def my_reports(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-
-            id,
-            pipeline_name,
-            file_type,
-            health_score,
-            total_rows,
-            total_columns,
-            created_at
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-
-        ORDER BY id DESC
-        """,
-        (
-            email,
-        )
-    )
-
-    reports = cursor.fetchall()
-
-    conn.close()
-
-    data = []
-
-    for report in reports:
-
-        data.append({
-
-            "id":
-            report[0],
-
-            "pipeline_name":
-            report[1],
-
-            "file_type":
-            report[2],
-
-            "health_score":
-            report[3],
-
-            "rows":
-            report[4],
-
-            "columns":
-            report[5],
-
-            "created_at":
-            report[6]
-
-        })
-
-    return {
-
-        "success": True,
-
-        "count":
-        len(data),
-
-        "reports":
-        data
-
-    }
-
-
-@app.get("/report/{report_id}")
-def report_details(
-
-    report_id: int,
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-
-            id,
-            company_email,
-            pipeline_name,
-            file_type,
-            health_score,
-            issues,
-            total_rows,
-            total_columns,
-            created_at
-
-        FROM pipeline_reports
-
-        WHERE id=?
-        AND company_email=?
-        """,
-        (
-            report_id,
-            email
-        )
-    )
-
-    report = cursor.fetchone()
-
-    conn.close()
-
-    if not report:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Report not found"
-        )
-
-    return {
-
-        "id":
-        report[0],
-
-        "company_email":
-        report[1],
-
-        "pipeline_name":
-        report[2],
-
-        "file_type":
-        report[3],
-
-        "health_score":
-        report[4],
-
-        "issues":
-        json.loads(
-            report[5]
-        )
-        if report[5]
-        else [],
-
-        "total_rows":
-        report[6],
-
-        "total_columns":
-        report[7],
-
-        "created_at":
-        report[8]
-
-    }
-
-
-@app.delete("/delete-report/{report_id}")
-def delete_report(
-
-    report_id: int,
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        DELETE FROM pipeline_reports
-
-        WHERE id=?
-        AND company_email=?
-        """,
-        (
-            report_id,
-            email
-        )
-    )
-
-    conn.commit()
-
-    deleted = cursor.rowcount
-
-    conn.close()
-
-    if deleted == 0:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Report not found"
-        )
-
-    return {
-
-        "success": True,
-
-        "message":
-        "Report deleted"
-
-    }
-
-
-@app.get("/search-reports")
-def search_reports(
-
-    keyword: str,
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-
-            id,
-            pipeline_name,
-            health_score
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-        AND pipeline_name LIKE ?
-        """,
-        (
-            email,
-            f"%{keyword}%"
-        )
-    )
-
-    results = cursor.fetchall()
-
-    conn.close()
-
-    return {
-
-        "success": True,
-
-        "count":
-        len(results),
-
-        "results":
-        results
-
-    }
-
-
-@app.get("/report-count")
-def report_count(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-        """,
-        (
-            email,
-        )
-    )
-
-    total = cursor.fetchone()[0]
-
-    conn.close()
-
-    return {
-
-        "total_reports":
-        total
-
-    }
-
-
-@app.get("/pipeline-count")
-def pipeline_count(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-        """,
-        (
-            email,
-        )
-    )
-
-    total = cursor.fetchone()[0]
-
-    conn.close()
-
-    return {
-
-        "pipelines":
-        total
-
-    }
-
-
-@app.get("/dashboard-stats")
-def dashboard_stats(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-
-            COUNT(*),
-            AVG(health_score)
-
-        FROM pipeline_reports
-
-        WHERE company_email=?
-        """,
-        (
-            email,
-        )
-    )
-
-    stats = cursor.fetchone()
-
-    total_reports = stats[0]
-
-    avg_score = round(
-        stats[1] or 0,
-        2
-    )
-
-    conn.close()
-
-    return {
-
-        "total_reports":
-        total_reports,
-
-        "average_health_score":
-        avg_score,
-
-        "successful_uploads":
-        MONITOR[
-            "successful_uploads"
-        ],
-
-        "failed_uploads":
-        MONITOR[
-            "failed_uploads"
-        ],
-
-        "active_users":
-        len(
-            ACTIVE_USERS
-        )
-
-    }
-
-
-@app.get("/user-count")
-def user_count(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-
-        FROM users
-        """
-    )
-
-    count = cursor.fetchone()[0]
-
-    conn.close()
-
-    return {
-
-        "total_users":
-        count
-
-    }
-
-
-@app.get("/all-users")
-def all_users(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-
-            id,
-            full_name,
-            email,
-            plan,
-            created_at
-
-        FROM users
-
-        ORDER BY id DESC
-        """
-    )
-
-    users = cursor.fetchall()
-
-    conn.close()
-
-    return {
-
-        "count":
-        len(users),
-
-        "users":
-        users
-
-    }
-@app.get("/")
-def home():
-
-    return {
-
-        "application":
-        "PipeGuard AI",
-
-        "version":
-        APP_VERSION,
-
-        "status":
-        "running"
-
-    }
-
-
-@app.get("/health")
-def health():
-
-    try:
-
-        conn = get_db()
-
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT 1"
-        )
-
-        conn.close()
-
-        db_status = "connected"
-
-    except:
-
-        db_status = "disconnected"
-
-    return {
-
-        "status":
-        "healthy",
-
-        "database":
-        db_status,
-
-        "timestamp":
-        str(
-            datetime.utcnow()
-        )
-
-    }
-
-
-@app.get("/api-status")
-def api_status():
-
-    return {
-
-        "running":
-        True,
-
-        "version":
-        APP_VERSION,
-
-        "requests":
-        MONITOR[
-            "total_requests"
-        ],
-
-        "errors":
-        MONITOR[
-            "total_errors"
-        ]
-
-    }
-
-
-@app.get("/version")
-def version():
-
-    return {
-
-        "application":
-        "PipeGuard AI",
-
-        "version":
-        APP_VERSION
-
-    }
-
-
-@app.get("/ping")
-def ping():
-
-    return {
-
-        "message":
-        "pong"
-
-    }
-
-
-@app.get("/ready")
-def ready():
-
-    try:
-
-        conn = get_db()
-
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT 1"
-        )
-
-        conn.close()
-
-        return {
-
-            "ready":
-            True,
-
-            "database":
-            True
-
-        }
-
-    except:
-
-        return {
-
-            "ready":
-            False,
-
-            "database":
-            False
-
-        }
-
-
-@app.get("/system-stats")
-def system_stats(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "cpu_percent":
-        psutil.cpu_percent(),
-
-        "memory_percent":
-        psutil.virtual_memory().percent,
-
-        "disk_percent":
-        psutil.disk_usage(
-            "/"
-        ).percent,
-
-        "active_users":
-        len(
-            ACTIVE_USERS
-        ),
-
-        "successful_uploads":
-        MONITOR[
-            "successful_uploads"
-        ],
-
-        "failed_uploads":
-        MONITOR[
-            "failed_uploads"
-        ],
-
-        "total_requests":
-        MONITOR[
-            "total_requests"
-        ],
-
-        "total_errors":
-        MONITOR[
-            "total_errors"
-        ]
-
-    }
-
-
-@app.get("/self-monitor")
-def self_monitor(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    cpu = psutil.cpu_percent()
-
-    ram = (
-        psutil.virtual_memory()
-        .percent
-    )
-
-    disk = (
-        psutil.disk_usage("/")
-        .percent
-    )
-
-    status = "healthy"
-
-    if cpu > 90:
-
-        status = "warning"
-
-    if ram > 90:
-
-        status = "warning"
-
-    if disk > 90:
-
-        status = "critical"
-
-    return {
-
-        "status":
-        status,
-
-        "cpu":
-        cpu,
-
-        "ram":
-        ram,
-
-        "disk":
-        disk,
-
-        "active_users":
-        len(
-            ACTIVE_USERS
-        )
-
-    }
-
-
-@app.get("/test")
-def test():
-
-    return {
-
-        "success":
-        True,
-
-        "message":
-        "PipeGuard API Working"
-
-    }
-# =========================
-# GLOBAL ERROR HANDLERS
-# =========================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(
-    request: Request,
-    exc: HTTPException
-):
-
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "detail": exc.detail
-        }
-    )
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(
-    request: Request,
-    exc: Exception
-):
-
-    MONITOR["total_errors"] += 1
-
-    logger.error(
-        f"Unhandled Error: {str(exc)}"
-    )
-
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "detail": "Internal Server Error"
-        }
-    )
-
-
-# =========================
-# DATA QUALITY ANALYZER
-# =========================
-
-def generate_quality_insights(
-    df: pd.DataFrame
-):
-
-    insights = []
-
-    rows = len(df)
-    cols = len(df.columns)
-
-    if rows < 100:
-        insights.append(
-            "Dataset is very small"
-        )
-
-    if cols > 50:
-        insights.append(
-            "Large schema detected"
-        )
-
-    missing = (
-        df.isnull()
-        .sum()
-        .sum()
-    )
-
-    if missing > 0:
-        insights.append(
-            f"{missing} missing values found"
-        )
-
-    duplicates = (
-        df.duplicated()
-        .sum()
-    )
-
-    if duplicates > 0:
-        insights.append(
-            f"{duplicates} duplicate rows found"
-        )
-
-    return insights
-
-
-# =========================
-# OUTLIER DETECTION
-# =========================
-
-def detect_outliers(
-    df: pd.DataFrame
-):
-
-    result = {}
-
-    numeric_cols = (
-        df.select_dtypes(
-            include="number"
-        )
-        .columns
-    )
-
-    for col in numeric_cols:
-
-        try:
-
-            q1 = (
-                df[col]
-                .quantile(0.25)
-            )
-
-            q3 = (
-                df[col]
-                .quantile(0.75)
-            )
-
-            iqr = q3 - q1
-
-            lower = (
-                q1 - 1.5 * iqr
-            )
-
-            upper = (
-                q3 + 1.5 * iqr
-            )
-
-            count = len(
-
-                df[
-                    (df[col] < lower)
-                    |
-                    (df[col] > upper)
-                ]
-
-            )
-
-            result[col] = count
-
-        except:
-            pass
-
-    return result
-
-
-# =========================
-# SCHEMA SUMMARY
-# =========================
-
-def schema_summary(
-    df: pd.DataFrame
-):
-
-    columns = []
-
-    for col in df.columns:
-
-        columns.append({
-
-            "column":
-            col,
-
-            "dtype":
-            str(
-                df[col].dtype
-            ),
-
-            "nulls":
-            int(
-                df[col]
-                .isnull()
-                .sum()
-            )
-
-        })
-
-    return columns
-
-
-# =========================
-# QUALITY REPORT API
-# =========================
-
-@app.post("/quality-report")
-async def quality_report(
-
-    file: UploadFile = File(...),
-
-    email: str =
-    Depends(get_current_user)
+    email: str = Depends(get_current_user)
 
 ):
 
     extension = validate_file(
+
         file
+
     )
 
     df = load_file(
+
         file,
+
         extension
-    )
-
-    return {
-
-        "success": True,
-
-        "rows":
-        len(df),
-
-        "columns":
-        len(df.columns),
-
-        "quality_insights":
-        generate_quality_insights(df),
-
-        "outliers":
-        detect_outliers(df),
-
-        "schema":
-        schema_summary(df)
-
-    }
-
-
-# =========================
-# LOG STATS
-# =========================
-
-@app.get("/logs")
-def logs(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "total_requests":
-        MONITOR["total_requests"],
-
-        "successful_uploads":
-        MONITOR["successful_uploads"],
-
-        "failed_uploads":
-        MONITOR["failed_uploads"],
-
-        "errors":
-        MONITOR["total_errors"]
-
-    }
-# =========================
-# REAL TIME MONITORING
-# =========================
-
-import threading
-
-SYSTEM_ALERTS = []
-
-SERVER_START_TIME = time.time()
-
-SELF_HEAL_STATS = {
-
-    "high_cpu_events": 0,
-    "high_memory_events": 0,
-    "database_failures": 0,
-    "alerts_generated": 0
-
-}
-
-
-# =========================
-# CREATE ALERT
-# =========================
-
-def create_alert(
-
-    level: str,
-    message: str
-
-):
-
-    SYSTEM_ALERTS.append({
-
-        "time":
-        str(datetime.utcnow()),
-
-        "level":
-        level,
-
-        "message":
-        message
-
-    })
-
-    SELF_HEAL_STATS[
-        "alerts_generated"
-    ] += 1
-
-    if len(SYSTEM_ALERTS) > 500:
-
-        SYSTEM_ALERTS.pop(0)
-
-
-# =========================
-# DATABASE HEALTH
-# =========================
-
-def database_health():
-
-    try:
-
-        conn = get_db()
-
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT 1"
-        )
-
-        conn.close()
-
-        return True
-
-    except:
-
-        return False
-
-
-# =========================
-# SYSTEM HEALTH SCORE
-# =========================
-
-def system_health_score():
-
-    score = 100
-
-    cpu = psutil.cpu_percent()
-
-    ram = (
-        psutil.virtual_memory()
-        .percent
-    )
-
-    if cpu > 80:
-        score -= 15
-
-    if ram > 80:
-        score -= 15
-
-    if MONITOR[
-        "total_errors"
-    ] > 20:
-        score -= 20
-
-    return max(
-        score,
-        0
-    )
-
-
-# =========================
-# UPTIME
-# =========================
-
-def get_uptime():
-
-    seconds = int(
-
-        time.time()
-        -
-        SERVER_START_TIME
 
     )
 
-    hours = seconds // 3600
+    original_rows = len(df)
 
-    minutes = (
-        seconds % 3600
-    ) // 60
+    cleaned_df, clean_report = auto_clean_dataframe(
 
-    return f"{hours}h {minutes}m"
-
-
-# =========================
-# BACKGROUND MONITOR
-# =========================
-
-def monitor_worker():
-
-    while True:
-
-        try:
-
-            cpu = psutil.cpu_percent()
-
-            ram = (
-                psutil.virtual_memory()
-                .percent
-            )
-
-            if cpu > 90:
-
-                SELF_HEAL_STATS[
-                    "high_cpu_events"
-                ] += 1
-
-                create_alert(
-
-                    "WARNING",
-
-                    f"High CPU {cpu}%"
-
-                )
-
-            if ram > 90:
-
-                SELF_HEAL_STATS[
-                    "high_memory_events"
-                ] += 1
-
-                create_alert(
-
-                    "WARNING",
-
-                    f"High Memory {ram}%"
-
-                )
-
-            if not database_health():
-
-                SELF_HEAL_STATS[
-                    "database_failures"
-                ] += 1
-
-                create_alert(
-
-                    "CRITICAL",
-
-                    "Database disconnected"
-
-                )
-
-        except Exception as e:
-
-            create_alert(
-
-                "ERROR",
-
-                str(e)
-
-            )
-
-        time.sleep(60)
-
-
-# =========================
-# START MONITOR THREAD
-# =========================
-
-@app.on_event("startup")
-async def start_monitor():
-
-    thread = threading.Thread(
-
-        target=monitor_worker,
-
-        daemon=True
+        df
 
     )
 
-    thread.start()
+    health_score = calculate_health_score(
 
-    logger.info(
-        "Monitoring Started"
+        cleaned_df
+
     )
 
+    issues = detect_issues(
 
-# =========================
-# SYSTEM ALERTS
-# =========================
+        cleaned_df
 
-@app.get("/system-alerts")
-def system_alerts(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "count":
-        len(
-            SYSTEM_ALERTS
-        ),
-
-        "alerts":
-        SYSTEM_ALERTS
-
-    }
-
-
-# =========================
-# HEALTH SCORE
-# =========================
-
-@app.get("/system-health-score")
-def health_score():
-
-    return {
-
-        "score":
-        system_health_score(),
-
-        "status":
-
-        "healthy"
-
-        if system_health_score() >= 80
-
-        else
-
-        "warning"
-
-    }
-
-
-# =========================
-# ACTIVE USERS
-# =========================
-
-@app.get("/active-users")
-def active_users(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "count":
-        len(
-            ACTIVE_USERS
-        ),
-
-        "users":
-        list(
-            ACTIVE_USERS.keys()
-        )
-
-    }
-
-
-# =========================
-# MONITOR DASHBOARD
-# =========================
-
-@app.get("/monitor-dashboard")
-def monitor_dashboard(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "uptime":
-        get_uptime(),
-
-        "health_score":
-        system_health_score(),
-
-        "cpu":
-        psutil.cpu_percent(),
-
-        "ram":
-        psutil.virtual_memory().percent,
-
-        "disk":
-        psutil.disk_usage(
-            "/"
-        ).percent,
-
-        "alerts":
-        len(
-            SYSTEM_ALERTS
-        ),
-
-        "active_users":
-        len(
-            ACTIVE_USERS
-        ),
-
-        "monitor":
-        MONITOR,
-
-        "self_heal":
-        SELF_HEAL_STATS
-
-    }
-
-
-# =========================
-# SECURITY CHECK
-# =========================
-
-@app.get("/security-audit")
-def security_audit(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "jwt_enabled":
-        True,
-
-        "rate_limit":
-        True,
-
-        "cors_enabled":
-        True,
-
-        "health_score":
-        system_health_score(),
-
-        "active_sessions":
-        len(
-            ACTIVE_USERS
-        )
-
-    }
-    # =========================
-# OTP HELPERS
-# =========================
-
-OTP_STORE = {}
-
-
-def generate_otp():
-
-    return str(
-        randint(
-            100000,
-            999999
-        )
-    )
-
-
-# =========================
-# SEND OTP
-# =========================
-
-@app.post("/send-otp")
-def send_otp(
-
-    email: str
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-
-        FROM users
-
-        WHERE email=?
-        """,
-        (
-            email.lower(),
-        )
-    )
-
-    user = cursor.fetchone()
-
-    if not user:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=404,
-            detail="User not found"
-        )
-
-    otp = generate_otp()
-
-    cursor.execute(
-        """
-        UPDATE users
-
-        SET otp=?
-
-        WHERE email=?
-        """,
-        (
-            otp,
-            email.lower()
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-    OTP_STORE[
-        email.lower()
-    ] = {
-
-        "otp": otp,
-
-        "created":
-        time.time()
-
-    }
-
-    # Future:
-    # email service send here
-
-    return {
-
-        "success": True,
-
-        "otp":
-        otp,
-
-        "message":
-        "OTP generated"
-
-    }
-
-
-# =========================
-# VERIFY OTP
-# =========================
-
-@app.post("/verify-otp")
-def verify_otp(
-
-    email: str,
-
-    otp: str
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT otp
-
-        FROM users
-
-        WHERE email=?
-        """,
-        (
-            email.lower(),
-        )
-    )
-
-    result = cursor.fetchone()
-
-    if not result:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=404,
-            detail="User not found"
-        )
-
-    stored_otp = result[0]
-
-    if stored_otp != otp:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid OTP"
-        )
-
-    cursor.execute(
-        """
-        UPDATE users
-
-        SET is_verified=1
-
-        WHERE email=?
-        """,
-        (
-            email.lower(),
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-
-        "success": True,
-
-        "message":
-        "Account verified"
-
-    }
-
-
-# =========================
-# FORGOT PASSWORD
-# =========================
-
-@app.post("/forgot-password")
-def forgot_password(
-
-    email: str
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-
-        FROM users
-
-        WHERE email=?
-        """,
-        (
-            email.lower(),
-        )
-    )
-
-    user = cursor.fetchone()
-
-    if not user:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=404,
-            detail="User not found"
-        )
-
-    otp = generate_otp()
-
-    cursor.execute(
-        """
-        UPDATE users
-
-        SET otp=?
-
-        WHERE email=?
-        """,
-        (
-            otp,
-            email.lower()
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-
-        "success": True,
-
-        "otp":
-        otp,
-
-        "message":
-        "Reset OTP generated"
-
-    }
-
-
-# =========================
-# RESET PASSWORD
-# =========================
-
-@app.post("/reset-password")
-def reset_password(
-
-    email: str,
-
-    otp: str,
-
-    new_password: str
-
-):
-
-    validate_password_strength(
-        new_password
     )
 
     conn = get_db()
+
     cursor = conn.cursor()
 
     cursor.execute(
+
         """
-        SELECT otp
 
-        FROM users
+        INSERT INTO pipeline_reports(
 
-        WHERE email=?
+            company_email,
+
+            pipeline_name,
+
+            file_type,
+
+            health_score,
+
+            issues,
+
+            total_rows,
+
+            total_columns
+
+        )
+
+        VALUES(
+
+            ?,?,?,?,?,?,?
+
+        )
+
         """,
+
         (
-            email.lower(),
-        )
-    )
 
-    result = cursor.fetchone()
-
-    if not result:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=404,
-            detail="User not found"
-        )
-
-    stored_otp = result[0]
-
-    if stored_otp != otp:
-
-        conn.close()
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid OTP"
-        )
-
-    hashed = hash_password(
-        new_password
-    )
-
-    cursor.execute(
-        """
-        UPDATE users
-
-        SET
-
-        password=?,
-        otp=NULL
-
-        WHERE email=?
-        """,
-        (
-            hashed,
-            email.lower()
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-
-        "success": True,
-
-        "message":
-        "Password reset successful"
-
-    }
-
-
-# =========================
-# VERIFICATION STATUS
-# =========================
-
-@app.get("/verification-status")
-def verification_status(
-
-    email: str =
-    Depends(get_current_user)
-
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT is_verified
-
-        FROM users
-
-        WHERE email=?
-        """,
-        (
             email,
+
+            pipeline_name,
+
+            extension,
+
+            health_score,
+
+            json.dumps(issues),
+
+            len(cleaned_df),
+
+            len(cleaned_df.columns)
+
         )
+
     )
 
-    result = cursor.fetchone()
+    conn.commit()
 
     conn.close()
 
-    return {
-
-        "verified":
-        bool(
-            result[0]
-        )
-
-    }
-    # =========================
-# AUDIT LOGS
-# =========================
-
-AUDIT_LOGS = []
-
-
-def add_audit_log(
-
-    action: str,
-    user: str,
-    details: str = ""
-
-):
-
-    AUDIT_LOGS.append({
-
-        "time":
-        str(datetime.utcnow()),
-
-        "action":
-        action,
-
-        "user":
-        user,
-
-        "details":
-        details
-
-    })
-
-    if len(AUDIT_LOGS) > 1000:
-
-        AUDIT_LOGS.pop(0)
-
-
-# =========================
-# SECURITY HEADERS
-# =========================
-
-@app.middleware("http")
-async def security_headers(
-
-    request: Request,
-    call_next
-
-):
-
-    response = await call_next(
-        request
-    )
-
-    response.headers[
-        "X-Frame-Options"
-    ] = "DENY"
-
-    response.headers[
-        "X-Content-Type-Options"
-    ] = "nosniff"
-
-    response.headers[
-        "Referrer-Policy"
-    ] = "strict-origin"
-
-    response.headers[
-        "X-XSS-Protection"
-    ] = "1; mode=block"
-
-    return response
-
-
-# =========================
-# REQUEST TRACKER
-# =========================
-
-@app.middleware("http")
-async def request_tracker(
-
-    request: Request,
-    call_next
-
-):
-
-    start = time.time()
-
-    response = await call_next(
-        request
-    )
-
-    duration = round(
-
-        time.time()
-        - start,
-
-        3
-
-    )
-
-    logger.info(
-
-        f"{request.method} "
-        f"{request.url.path} "
-        f"{response.status_code} "
-        f"{duration}s"
-
-    )
-
-    return response
-
-
-# =========================
-# AUDIT API
-# =========================
-
-@app.get("/audit-logs")
-def audit_logs(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "count":
-        len(
-            AUDIT_LOGS
-        ),
-
-        "logs":
-        AUDIT_LOGS
-
-    }
-
-
-# =========================
-# SECURITY REPORT
-# =========================
-
-@app.get("/security-report")
-def security_report(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "jwt_auth":
-        True,
-
-        "cors":
-        True,
-
-        "rate_limit":
-        True,
-
-        "audit_logs":
-        len(
-            AUDIT_LOGS
-        ),
-
-        "health_score":
-        system_health_score()
-
-    }
-
-
-# =========================
-# DATABASE CHECK
-# =========================
-
-def database_ready():
-
-    try:
-
-        conn = get_db()
-
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT 1"
-        )
-
-        conn.close()
-
-        return True
-
-    except:
-
-        return False
-
-
-# =========================
-# STARTUP VALIDATION
-# =========================
-
-@app.on_event("startup")
-async def startup_validation():
-
-    logger.info(
-        "PipeGuard Starting..."
-    )
-
-    if database_ready():
-
-        logger.info(
-            "Database Connected"
-        )
-
-    else:
-
-        logger.error(
-            "Database Failed"
-        )
-
-    logger.info(
-        f"Version {APP_VERSION}"
-    )
-
-
-# =========================
-# BACKUP INFO
-# =========================
-
-@app.get("/backup-info")
-def backup_info(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "database":
-        "pipeguard.db",
-
-        "users":
-        len(
-            ACTIVE_USERS
-        ),
-
-        "reports":
-        "stored in pipeline_reports"
-
-    }
-
-
-# =========================
-# APP INFO
-# =========================
-
-@app.get("/app-info")
-def app_info():
-
-    return {
-
-        "application":
-        "PipeGuard AI",
-
-        "version":
-        APP_VERSION,
-
-        "status":
-        "production",
-
-        "health":
-        system_health_score()
-
-    }
-
-
-# =========================
-# FINAL START MESSAGE
-# =========================
-
-print(
-    "PipeGuard AI Production Layer Loaded"
-)
-# =========================
-# AUTO CLEANUP
-# =========================
-
-def cleanup_memory():
-
-    try:
-
-        if len(ACTIVE_USERS) > 1000:
-
-            ACTIVE_USERS.clear()
-
-        if len(SYSTEM_ALERTS) > 1000:
-
-            SYSTEM_ALERTS.clear()
-
-        if len(AUDIT_LOGS) > 5000:
-
-            del AUDIT_LOGS[:4000]
-
-    except Exception as e:
-
-        logger.error(
-            f"Cleanup Error: {str(e)}"
-        )
-
-
-# =========================
-# MAINTENANCE WORKER
-# =========================
-
-def maintenance_worker():
-
-    while True:
-
-        try:
-
-            cleanup_memory()
-
-            logger.info(
-                "Maintenance Cycle Complete"
-            )
-
-        except Exception as e:
-
-            logger.error(
-                str(e)
-            )
-
-        time.sleep(3600)
-
-
-# =========================
-# START MAINTENANCE THREAD
-# =========================
-
-@app.on_event("startup")
-async def start_maintenance():
-
-    worker = threading.Thread(
-
-        target=maintenance_worker,
-
-        daemon=True
-
-    )
-
-    worker.start()
-
-    logger.info(
-        "Maintenance Started"
-    )
-
-
-# =========================
-# EMAIL CONFIG CHECK
-# =========================
-
-@app.get("/mail-status")
-def mail_status(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "mail_username":
-        bool(
-            os.getenv(
-                "MAIL_USERNAME"
-            )
-        ),
-
-        "mail_password":
-        bool(
-            os.getenv(
-                "MAIL_PASSWORD"
-            )
-        ),
-
-        "mail_server":
-        bool(
-            os.getenv(
-                "MAIL_SERVER"
-            )
-        )
-
-    }
-
-
-# =========================
-# ENVIRONMENT CHECK
-# =========================
-
-@app.get("/environment")
-def environment(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    return {
-
-        "version":
-        APP_VERSION,
-
-        "python":
-        os.sys.version,
-
-        "platform":
-        os.name
-
-    }
-
-
-# =========================
-# FINAL HEALTH REPORT
-# =========================
-
-@app.get("/final-health")
-def final_health():
-
-    return {
-
-        "status":
-        "healthy",
-
-        "database":
-        database_ready(),
-
-        "health_score":
-        system_health_score(),
-
-        "requests":
-        MONITOR[
-            "total_requests"
-        ],
-
-        "errors":
-        MONITOR[
-            "total_errors"
-        ],
-
-        "active_users":
-        len(
-            ACTIVE_USERS
-        )
-
-    }
-
-
-# =========================
-# RESET ALERTS
-# =========================
-
-@app.delete("/reset-alerts")
-def reset_alerts(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    SYSTEM_ALERTS.clear()
+    MONITOR["successful_uploads"] += 1
 
     return {
 
         "success": True,
 
-        "message":
-        "Alerts cleared"
+        "pipeline_name": pipeline_name,
+
+        "health_score": health_score,
+
+        "issues": issues,
+
+        "rows": len(cleaned_df),
+
+        "columns": len(cleaned_df.columns),
+
+        "clean_report": clean_report,
+
+        "original_rows": original_rows
 
     }
 
 
 # =========================
-# RESET AUDIT LOGS
+# NEXT SECTION
 # =========================
-
-@app.delete("/reset-audit-logs")
-def reset_audit_logs(
-
-    email: str =
-    Depends(require_admin)
-
-):
-
-    AUDIT_LOGS.clear()
-
-    return {
-
-        "success": True,
-
-        "message":
-        "Audit logs cleared"
-
-    }
-
-
-# =========================
-# FINAL READY API
-# =========================
-
-@app.get("/production-ready")
-def production_ready():
-
-    return {
-
-        "application":
-        "PipeGuard AI",
-
-        "version":
-        APP_VERSION,
-
-        "database":
-        database_ready(),
-
-        "monitoring":
-        True,
-
-        "security":
-        True,
-
-        "status":
-        "ready"
-
-    }
-
-
-# =========================
-# FINAL STARTUP MESSAGE
-# =========================
-
-print("=" * 50)
-print("PIPEGUARD AI V17 READY")
-print("=" * 50)
-    
